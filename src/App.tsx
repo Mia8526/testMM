@@ -1,0 +1,335 @@
+import React, { useState } from 'react';
+import { 
+  Search, 
+  TrendingUp, 
+  TrendingDown, 
+  CheckCircle2, 
+  XCircle, 
+  Info,
+  ArrowUpRight,
+  ArrowDownRight,
+  Loader2
+} from 'lucide-react';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
+import { motion, AnimatePresence } from 'motion/react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+interface StockData {
+  symbol: string;
+  currentPrice: number;
+  ma50: number;
+  ma150: number;
+  ma200: number;
+  high52w: number;
+  low52w: number;
+  distFromHigh: string;
+  distFromLow: string;
+  conditions: {
+    maAlignment: boolean;
+    nearHigh: boolean;
+    aboveLow: boolean;
+    ma200Trending: boolean;
+  };
+  isTemplateMet: boolean;
+  chartData: any[];
+}
+
+export default function App() {
+  const [symbol, setSymbol] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<StockData | null>(null);
+  const [error, setError] = useState('');
+
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!symbol) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/stock/${symbol}`);
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || '查詢失敗');
+      }
+      
+      setData(result);
+    } catch (err: any) {
+      setError(err.message);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-20">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+              <TrendingUp className="text-white w-5 h-5" />
+            </div>
+            <h1 className="font-bold text-xl tracking-tight text-slate-900">
+              台股趨勢模板 <span className="text-indigo-600">Minervini</span>
+            </h1>
+          </div>
+          
+          <form onSubmit={handleSearch} className="relative w-full max-w-xs hidden sm:block">
+            <input
+              type="text"
+              placeholder="輸入代碼 (如 2330)"
+              className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-indigo-500 transition-all"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+            />
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+          </form>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 pt-8">
+        {/* Hero Search (Mobile & Empty State) */}
+        {!data && !loading && (
+          <div className="max-w-2xl mx-auto text-center py-20">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <h2 className="text-4xl font-extrabold text-slate-900 mb-4">
+                尋找下一檔超級強勢股
+              </h2>
+              <p className="text-slate-600 text-lg mb-8">
+                根據 Mark Minervini 的趨勢模板邏輯，自動分析台股是否處於第二階段上升趨勢。
+              </p>
+              
+              <form onSubmit={handleSearch} className="relative max-w-md mx-auto">
+                <input
+                  type="text"
+                  placeholder="輸入股票代碼 (例如: 2330)"
+                  className="w-full pl-12 pr-32 py-4 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-indigo-100/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-lg"
+                  value={symbol}
+                  onChange={(e) => setSymbol(e.target.value)}
+                />
+                <Search className="absolute left-4 top-5 w-6 h-6 text-slate-400" />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="absolute right-2 top-2 bottom-2 px-6 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                >
+                  開始分析
+                </button>
+              </form>
+              
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
+                {['2330', '2454', '2317', '1513', '2382'].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { setSymbol(s); setTimeout(() => handleSearch(), 0); }}
+                    className="px-4 py-1.5 bg-white border border-slate-200 rounded-full text-sm text-slate-600 hover:border-indigo-500 hover:text-indigo-600 transition-all"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-32">
+            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+            <p className="text-slate-500 font-medium">正在抓取 Yahoo Finance 數據...</p>
+          </div>
+        )}
+
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-md mx-auto mt-8 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-700"
+          >
+            <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">查詢出錯</p>
+              <p className="text-sm opacity-90">{error}</p>
+            </div>
+          </motion.div>
+        )}
+
+        <AnimatePresence>
+          {data && !loading && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Result Summary Card */}
+              <div className={cn(
+                "p-8 rounded-3xl border shadow-xl flex flex-col md:flex-row items-center justify-between gap-8 transition-colors",
+                data.isTemplateMet 
+                  ? "bg-emerald-50 border-emerald-100 shadow-emerald-100/50" 
+                  : "bg-white border-slate-200 shadow-slate-100/50"
+              )}>
+                <div className="flex items-center gap-6">
+                  <div className={cn(
+                    "w-20 h-20 rounded-2xl flex items-center justify-center",
+                    data.isTemplateMet ? "bg-emerald-500" : "bg-slate-200"
+                  )}>
+                    {data.isTemplateMet ? (
+                      <CheckCircle2 className="text-white w-12 h-12" />
+                    ) : (
+                      <XCircle className="text-slate-400 w-12 h-12" />
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="text-4xl font-black text-slate-900">{data.symbol}</h2>
+                    <p className={cn(
+                      "text-lg font-semibold mt-1",
+                      data.isTemplateMet ? "text-emerald-700" : "text-slate-500"
+                    )}>
+                      {data.isTemplateMet ? "符合趨勢模板條件" : "未完全符合趨勢模板"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-12 text-center">
+                  <div>
+                    <p className="text-sm text-slate-500 font-medium mb-1">目前股價</p>
+                    <p className="text-3xl font-bold text-slate-900">{data.currentPrice.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 font-medium mb-1">52週高點</p>
+                    <p className="text-3xl font-bold text-slate-900">{data.high52w.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 font-medium mb-1">52週低點</p>
+                    <p className="text-3xl font-bold text-slate-900">{data.low52w.toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Conditions Checklist */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
+                    <Info className="w-5 h-5 text-indigo-500" />
+                    趨勢模板檢查清單
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <ConditionItem 
+                      label="均線排列 (Price > 50 > 150 > 200)" 
+                      met={data.conditions.maAlignment} 
+                      detail={`MA50: ${data.ma50?.toFixed(1)}, MA150: ${data.ma150?.toFixed(1)}, MA200: ${data.ma200?.toFixed(1)}`}
+                    />
+                    <ConditionItem 
+                      label="距離 52 週高點 25% 以內" 
+                      met={data.conditions.nearHigh} 
+                      detail={`目前距離高點: ${data.distFromHigh}%`}
+                    />
+                    <ConditionItem 
+                      label="高於 52 週低點 30% 以上" 
+                      met={data.conditions.aboveLow} 
+                      detail={`目前高於低點: ${data.distFromLow}%`}
+                    />
+                    <ConditionItem 
+                      label="200 日均線向上趨勢 (額外)" 
+                      met={data.conditions.ma200Trending} 
+                      detail="200MA 目前高於 20 天前數值"
+                    />
+                  </div>
+
+                  <div className="mt-8 p-4 bg-indigo-50 rounded-2xl">
+                    <p className="text-xs text-indigo-700 leading-relaxed">
+                      <strong>Mark Minervini 提示：</strong><br />
+                      超級強勢股通常在進入第二階段上升趨勢時符合這些條件。除了價格行為，也應注意成交量與相對強度 (RS)。
+                    </p>
+                  </div>
+                </div>
+
+                {/* Chart */}
+                <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-bold text-slate-900">價格與均線趨勢圖</h3>
+                    <div className="flex gap-4 text-xs font-medium">
+                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-600"></span> 價格</div>
+                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-500"></span> MA50</div>
+                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500"></span> MA150</div>
+                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-rose-500"></span> MA200</div>
+                    </div>
+                  </div>
+                  
+                  <div className="h-[400px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={data.chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="date" 
+                          hide 
+                        />
+                        <YAxis 
+                          domain={['auto', 'auto']} 
+                          orientation="right"
+                          tick={{ fontSize: 12, fill: '#64748b' }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                        />
+                        <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} dot={false} name="收盤價" />
+                        <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" />
+                        <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" />
+                        <Line type="monotone" dataKey="ma200" stroke="#f43f5e" strokeWidth={1.5} dot={false} name="200MA" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+function ConditionItem({ label, met, detail }: { label: string; met: boolean; detail: string }) {
+  return (
+    <div className="flex gap-3">
+      <div className="mt-1">
+        {met ? (
+          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+        ) : (
+          <XCircle className="w-5 h-5 text-slate-300" />
+        )}
+      </div>
+      <div>
+        <p className={cn("text-sm font-bold", met ? "text-slate-900" : "text-slate-500")}>
+          {label}
+        </p>
+        <p className="text-xs text-slate-400 mt-0.5">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
