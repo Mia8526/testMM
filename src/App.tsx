@@ -30,6 +30,8 @@ function cn(...inputs: ClassValue[]) {
 
 interface StockData {
   symbol: string;
+  shortName: string;
+  marketType: string;
   currentPrice: number;
   ma50: number;
   ma150: number;
@@ -93,6 +95,14 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to get range bar color
+  const getRangeBarColor = (current: number, low: number, high: number) => {
+    const percent = ((current - low) / (high - low)) * 100;
+    if (percent > 75) return "bg-emerald-500";
+    if (percent >= 50) return "bg-blue-500";
+    return "bg-slate-400";
   };
 
   return (
@@ -194,8 +204,14 @@ export default function App() {
               {/* Header Card */}
               <div className="sleek-card flex flex-col md:flex-row items-end justify-between gap-6">
                 <div className="space-y-1">
-                  <span className="text-[14px] text-[#64748b] font-medium uppercase tracking-wider">{data.symbol}</span>
-                  <h2 className="text-3xl font-extrabold text-[#0f172a]">超級績效分析報告</h2>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[14px] text-[#64748b] font-medium uppercase tracking-wider">{data.symbol}</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[11px] font-bold rounded uppercase">{data.marketType}</span>
+                  </div>
+                  <div className="flex items-baseline gap-3">
+                    <h2 className="text-3xl font-extrabold text-[#0f172a]">{data.shortName}</h2>
+                    <span className="text-lg font-semibold text-slate-400">分析報告</span>
+                  </div>
                   <div className="flex items-center gap-2 mt-2">
                     <Info className="w-4 h-4 text-amber-500" />
                     <span className="text-sm text-amber-600 font-medium">{data.fundamentalStatus}</span>
@@ -235,7 +251,7 @@ export default function App() {
                       <span className="text-[10px] text-[#64748b] font-bold uppercase">目前位置</span>
                       <div className="h-2 bg-[#e2e8f0] rounded-full mt-2 relative overflow-hidden">
                         <div 
-                          className="absolute h-full bg-[#2563eb] rounded-full" 
+                          className={cn("absolute h-full rounded-full transition-all duration-500", getRangeBarColor(data.currentPrice, data.low52w, data.high52w))}
                           style={{ width: `${Math.min(100, Math.max(0, ((data.currentPrice - data.low52w) / (data.high52w - data.low52w)) * 100))}%` }}
                         />
                       </div>

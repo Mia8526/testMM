@@ -26,29 +26,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let symbol = ticker.toUpperCase();
-    
-    // Auto-append .TW if it's a 4-digit numeric code (Taiwan stock)
-    if (/^\d{4}$/.test(symbol)) {
-      symbol = `${symbol}.TW`;
-    } else if (!symbol.includes('.')) {
-      symbol = `${symbol}.TW`;
-    }
+    let result: any[] = [];
+    let marketType = '';
+    let shortName = '';
 
-    // Fetch historical data for the last 1.5 years
-    const endDate = new Date();
-    const startDate = subDays(endDate, 550);
-
-    const queryOptions = {
-      period1: startDate,
-      period2: endDate,
-      interval: '1d' as const,
+    // Helper to fetch data with fallback
+    const fetchData = async (sym: string) => {
+      try {
+        const endDate = new Date();
+        const startDate = subDays(endDate, 550);
+        const queryOptions = {
+          period1: startDate,
+          period2: endDate,
+          interval: '1d' as const,
+        };
+        const historical = await yahooFinance.historical(sym, queryOptions);
+        const quote = await yahooFinance.quote(sym);
+        return { historical, quote };
+      } catch (e) {
+        return null;
+      }
     };
 
-    const result = await yahooFinance.historical(symbol, queryOptions) as any[];
-    
-    if (!result || result.length === 0) {
-      return res.status(404).json({ error: `找不到股票數據: ${symbol}` });
+    let fetchResult = null;
+
+    if (/^\d{4}$/.test(symbol)) {
+      // Try .TW first
+      fetchResult = await fetchData(`${symbol}.TW`);
+      if (fetchResult) {
+        symbol = `${symbol}.TW`;
+        marketType = '上市';
+      } else {
+        // Try .TWO if .TW fails
+        fetchResult = await fetchData(`${symbol}.TWO`);
+        if (fetchResult) {
+          symbol = `${symbol}.TWO`;
+          marketType = '上櫃';
+        }
+      }
+    } else {
+      fetchResult = await fetchData(symbol);
+      marketType = symbol.endsWith('.TWO') ? '上櫃' : '上市';
     }
+
+    if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
+      return res.status(404).json({ error: `找不到股票數據: ${ticker}` });
+    }
+
+    result = fetchResult.historical;
+    shortName = fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
 
     // Sort by date ascending
     const data = result.filter((d: any) => d.close !== null).sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
@@ -88,6 +114,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.status(200).json({
       symbol,
+      shortName,
+      marketType,
       currentPrice,
       ma50,
       ma150,
