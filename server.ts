@@ -2,7 +2,8 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
+const yahooFinance = new YahooFinance();
 import { subDays, format } from 'date-fns';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,10 +15,20 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok' });
+  });
+
   // API Route: Fetch stock data and calculate indicators
-  app.get('/api/stock/:symbol', async (req, res) => {
+  app.get('/api/stock', async (req, res) => {
+    const ticker = req.query.ticker as string;
+    console.log(`API Request received for ticker: ${ticker}`);
     try {
-      let symbol = req.params.symbol.toUpperCase();
+      if (!ticker) {
+        return res.status(400).json({ error: '請提供股票代碼 (ticker)' });
+      }
+      let symbol = ticker.toUpperCase();
       
       // Auto-append .TW if it's a 4-digit numeric code (Taiwan stock)
       if (/^\d{4}$/.test(symbol)) {
@@ -130,8 +141,12 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`>>> Server is listening on 0.0.0.0:${PORT}`);
+    console.log(`>>> NODE_ENV: ${process.env.NODE_ENV}`);
   });
 }
 
-startServer();
+console.log('>>> Starting server...');
+startServer().catch(err => {
+  console.error('>>> Server failed to start:', err);
+});

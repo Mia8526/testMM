@@ -1,13 +1,35 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Inter", "Helvetica Neue", Arial, sans-serif;
+  
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-bg-main: #f1f5f9;
+  --color-sidebar: #ffffff;
+  --color-border: #e2e8f0;
+  --color-text-main: #1e293b;
+  --color-text-muted: #64748b;
+  --color-text-dark: #0f172a;
 }
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 font-sans;
+    @apply bg-[family-name:--color-bg-main] text-[family-name:--color-text-main] font-sans antialiased;
+  }
+}
+
+@layer components {
+  .sleek-card {
+    @apply bg-white rounded-xl p-6 shadow-sm border border-[family-name:--color-border];
+  }
+  
+  .sleek-input {
+    @apply w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:border-[family-name:--color-primary] focus:ring-2 focus:ring-blue-500/10 transition-all;
+  }
+  
+  .sleek-btn {
+    @apply bg-[family-name:--color-primary] text-white px-4 py-2 rounded-md font-semibold text-sm hover:bg-[family-name:--color-primary-hover] transition-colors disabled:opacity-50;
   }
 }

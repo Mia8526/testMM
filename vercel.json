@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/stock",
+      "destination": "/api/stock.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
+  ]
+}

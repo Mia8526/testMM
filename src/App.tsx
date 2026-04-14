@@ -61,13 +61,27 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/stock/${symbol}`);
-      const result = await response.json();
+      const response = await fetch(`/api/stock?ticker=${symbol}`);
+      const contentType = response.headers.get("content-type");
       
       if (!response.ok) {
-        throw new Error(result.error || '查詢失敗');
+        const text = await response.text();
+        let errorMessage = '查詢失敗';
+        try {
+          const json = JSON.parse(text);
+          errorMessage = json.error || errorMessage;
+        } catch (e) {
+          errorMessage = `伺服器錯誤 (${response.status}): ${text.substring(0, 50)}...`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        throw new Error(`非預期的回應格式: ${text.substring(0, 50)}...`);
       }
       
+      const result = await response.json();
       setData(result);
     } catch (err: any) {
       setError(err.message);
@@ -78,231 +92,195 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <TrendingUp className="text-white w-5 h-5" />
-            </div>
-            <h1 className="font-bold text-xl tracking-tight text-slate-900">
-              台股趨勢模板 <span className="text-indigo-600">Minervini</span>
-            </h1>
+    <div className="flex min-h-screen bg-[#f1f5f9]">
+      {/* Sidebar */}
+      <aside className="w-[280px] bg-white border-r border-[#e2e8f0] p-6 flex flex-col gap-6 shrink-0 fixed h-full">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-6 h-6 bg-[#2563eb] rounded-sm flex items-center justify-center">
+            <TrendingUp className="text-white w-4 h-4" />
           </div>
-          
-          <form onSubmit={handleSearch} className="relative w-full max-w-xs hidden sm:block">
-            <input
-              type="text"
-              placeholder="輸入代碼 (如 2330)"
-              className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-indigo-500 transition-all"
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-            />
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+          <h1 className="font-bold text-lg tracking-tight text-[#0f172a]">TrendPulse TW</h1>
+        </div>
+
+        <div className="space-y-4">
+          <h2 className="text-[14px] font-semibold text-[#64748b] uppercase tracking-wider">參數設定</h2>
+          <form onSubmit={handleSearch} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[13px] font-medium text-[#475569]">股票代碼</label>
+              <input
+                type="text"
+                placeholder="e.g. 2330"
+                className="sleek-input"
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="sleek-btn w-full flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : '開始分析'}
+            </button>
           </form>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 pt-8">
-        {/* Hero Search (Mobile & Empty State) */}
-        {!data && !loading && (
-          <div className="max-w-2xl mx-auto text-center py-20">
+        <div className="mt-auto pt-6 border-t border-slate-100">
+          <div className="text-[11px] text-[#94a3b8] space-y-2 leading-relaxed">
+            <p className="font-bold uppercase tracking-tight">趨勢模板標準 (Minervini):</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Price &gt; 150 & 200 MA</li>
+              <li>150 MA &gt; 200 MA</li>
+              <li>200 MA trending up</li>
+              <li>50 MA &gt; 150 & 200 MA</li>
+            </ol>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 ml-[280px] p-8 min-w-0">
+        <AnimatePresence mode="wait">
+          {!data && !loading && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              key="empty"
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
+              exit={{ opacity: 0 }}
+              className="h-full flex flex-col items-center justify-center text-center py-20"
             >
-              <h2 className="text-4xl font-extrabold text-slate-900 mb-4">
-                尋找下一檔超級強勢股
-              </h2>
-              <p className="text-slate-600 text-lg mb-8">
-                根據 Mark Minervini 的趨勢模板邏輯，自動分析台股是否處於第二階段上升趨勢。
-              </p>
-              
-              <form onSubmit={handleSearch} className="relative max-w-md mx-auto">
-                <input
-                  type="text"
-                  placeholder="輸入股票代碼 (例如: 2330)"
-                  className="w-full pl-12 pr-32 py-4 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-indigo-100/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-lg"
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
-                />
-                <Search className="absolute left-4 top-5 w-6 h-6 text-slate-400" />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="absolute right-2 top-2 bottom-2 px-6 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                >
-                  開始分析
-                </button>
-              </form>
-              
-              <div className="mt-8 flex flex-wrap justify-center gap-3">
-                {['2330', '2454', '2317', '1513', '2382'].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => { setSymbol(s); setTimeout(() => handleSearch(), 0); }}
-                    className="px-4 py-1.5 bg-white border border-slate-200 rounded-full text-sm text-slate-600 hover:border-indigo-500 hover:text-indigo-600 transition-all"
-                  >
-                    {s}
-                  </button>
-                ))}
+              <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-6">
+                <Search className="text-blue-600 w-8 h-8" />
               </div>
+              <h2 className="text-3xl font-extrabold text-[#0f172a] mb-3">準備好發掘強勢股了嗎？</h2>
+              <p className="text-[#64748b] max-w-md">
+                在左側輸入台股代碼，我們將根據 Minervini 的第二階段趨勢模板為您進行深度分析。
+              </p>
             </motion.div>
-          </div>
-        )}
+          )}
 
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-32">
-            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
-            <p className="text-slate-500 font-medium">正在抓取 Yahoo Finance 數據...</p>
-          </div>
-        )}
-
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="max-w-md mx-auto mt-8 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-700"
-          >
-            <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold">查詢出錯</p>
-              <p className="text-sm opacity-90">{error}</p>
+          {loading && (
+            <div className="h-full flex flex-col items-center justify-center py-32">
+              <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+              <p className="text-slate-500 font-medium">正在分析市場數據...</p>
             </div>
-          </motion.div>
-        )}
+          )}
 
-        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="max-w-md mx-auto p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-700"
+            >
+              <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
+              <p className="text-sm font-medium">{error}</p>
+            </motion.div>
+          )}
+
           {data && !loading && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              key="content"
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
               className="space-y-6"
             >
-              {/* Result Summary Card */}
-              <div className={cn(
-                "p-8 rounded-3xl border shadow-xl flex flex-col md:flex-row items-center justify-between gap-8 transition-colors",
-                data.isTemplateMet 
-                  ? "bg-emerald-50 border-emerald-100 shadow-emerald-100/50" 
-                  : "bg-white border-slate-200 shadow-slate-100/50"
-              )}>
-                <div className="flex items-center gap-6">
+              {/* Header Card */}
+              <div className="sleek-card flex flex-col md:flex-row items-end justify-between gap-6">
+                <div className="space-y-1">
+                  <span className="text-[14px] text-[#64748b] font-medium uppercase tracking-wider">{data.symbol}</span>
+                  <h2 className="text-3xl font-extrabold text-[#0f172a]">台股分析報告</h2>
+                </div>
+                <div className="text-right space-y-2">
                   <div className={cn(
-                    "w-20 h-20 rounded-2xl flex items-center justify-center",
-                    data.isTemplateMet ? "bg-emerald-500" : "bg-slate-200"
+                    "inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[14px] font-bold",
+                    data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
                   )}>
-                    {data.isTemplateMet ? (
-                      <CheckCircle2 className="text-white w-12 h-12" />
-                    ) : (
-                      <XCircle className="text-slate-400 w-12 h-12" />
-                    )}
+                    {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                    {data.isTemplateMet ? '符合趨勢模板 ✓' : '未符合模板'}
                   </div>
-                  <div>
-                    <h2 className="text-4xl font-black text-slate-900">{data.symbol}</h2>
-                    <p className={cn(
-                      "text-lg font-semibold mt-1",
-                      data.isTemplateMet ? "text-emerald-700" : "text-slate-500"
-                    )}>
-                      {data.isTemplateMet ? "符合趨勢模板條件" : "未完全符合趨勢模板"}
-                    </p>
+                  <div className="text-3xl font-bold text-[#0f172a]">$ {data.currentPrice.toFixed(2)}</div>
+                </div>
+              </div>
+
+              {/* Grid Layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* MA Card */}
+                <div className="sleek-card">
+                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">移動平均線 (MA)</span>
+                  <div className="space-y-3">
+                    <IndicatorRow label="50 MA" value={data.ma50?.toFixed(1) || '-'} />
+                    <IndicatorRow label="150 MA" value={data.ma150?.toFixed(1) || '-'} />
+                    <IndicatorRow label="200 MA" value={data.ma200?.toFixed(1) || '-'} />
                   </div>
                 </div>
 
-                <div className="flex gap-12 text-center">
-                  <div>
-                    <p className="text-sm text-slate-500 font-medium mb-1">目前股價</p>
-                    <p className="text-3xl font-bold text-slate-900">{data.currentPrice.toFixed(2)}</p>
+                {/* 52W Range Card */}
+                <div className="sleek-card">
+                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">52 週股價區間</span>
+                  <div className="space-y-3">
+                    <IndicatorRow label="52W 最高" value={data.high52w.toFixed(2)} />
+                    <IndicatorRow label="52W 最低" value={data.low52w.toFixed(2)} />
+                    <div className="pt-2">
+                      <span className="text-[10px] text-[#64748b] font-bold uppercase">目前位置</span>
+                      <div className="h-2 bg-[#e2e8f0] rounded-full mt-2 relative overflow-hidden">
+                        <div 
+                          className="absolute h-full bg-[#2563eb] rounded-full" 
+                          style={{ width: `${Math.min(100, Math.max(0, ((data.currentPrice - data.low52w) / (data.high52w - data.low52w)) * 100))}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-[#94a3b8] mt-1 font-medium">
+                        <span>Low</span>
+                        <span>Current</span>
+                        <span>High</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-slate-500 font-medium mb-1">52週高點</p>
-                    <p className="text-3xl font-bold text-slate-900">{data.high52w.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500 font-medium mb-1">52週低點</p>
-                    <p className="text-3xl font-bold text-slate-900">{data.low52w.toFixed(2)}</p>
+                </div>
+
+                {/* Checklist Card */}
+                <div className="sleek-card">
+                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">符合條件清單</span>
+                  <div className="space-y-3">
+                    <CheckItem label="收盤價 > 50 > 150 > 200" met={data.conditions.maAlignment} />
+                    <CheckItem label="距離 52W 高點 < 25%" met={data.conditions.nearHigh} />
+                    <CheckItem label="高於 52W 低點 > 30%" met={data.conditions.aboveLow} />
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Conditions Checklist */}
-                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-                    <Info className="w-5 h-5 text-indigo-500" />
-                    趨勢模板檢查清單
-                  </h3>
-                  
-                  <div className="space-y-4">
-                    <ConditionItem 
-                      label="均線排列 (Price > 50 > 150 > 200)" 
-                      met={data.conditions.maAlignment} 
-                      detail={`MA50: ${data.ma50?.toFixed(1)}, MA150: ${data.ma150?.toFixed(1)}, MA200: ${data.ma200?.toFixed(1)}`}
-                    />
-                    <ConditionItem 
-                      label="距離 52 週高點 25% 以內" 
-                      met={data.conditions.nearHigh} 
-                      detail={`目前距離高點: ${data.distFromHigh}%`}
-                    />
-                    <ConditionItem 
-                      label="高於 52 週低點 30% 以上" 
-                      met={data.conditions.aboveLow} 
-                      detail={`目前高於低點: ${data.distFromLow}%`}
-                    />
-                    <ConditionItem 
-                      label="200 日均線向上趨勢 (額外)" 
-                      met={data.conditions.ma200Trending} 
-                      detail="200MA 目前高於 20 天前數值"
-                    />
-                  </div>
-
-                  <div className="mt-8 p-4 bg-indigo-50 rounded-2xl">
-                    <p className="text-xs text-indigo-700 leading-relaxed">
-                      <strong>Mark Minervini 提示：</strong><br />
-                      超級強勢股通常在進入第二階段上升趨勢時符合這些條件。除了價格行為，也應注意成交量與相對強度 (RS)。
-                    </p>
+              {/* Chart Card */}
+              <div className="sleek-card">
+                <div className="flex items-center justify-between mb-6">
+                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">趨勢視覺化 (近 200 日)</span>
+                  <div className="flex gap-4 text-[10px] font-bold uppercase tracking-tight">
+                    <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-[#2563eb]"></span> 價格</div>
+                    <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-amber-500"></span> MA50</div>
+                    <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-emerald-500"></span> MA150</div>
+                    <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-rose-500"></span> MA200</div>
                   </div>
                 </div>
-
-                {/* Chart */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold text-slate-900">價格與均線趨勢圖</h3>
-                    <div className="flex gap-4 text-xs font-medium">
-                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-600"></span> 價格</div>
-                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-500"></span> MA50</div>
-                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500"></span> MA150</div>
-                      <div className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-rose-500"></span> MA200</div>
-                    </div>
-                  </div>
-                  
-                  <div className="h-[400px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data.chartData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey="date" 
-                          hide 
-                        />
-                        <YAxis 
-                          domain={['auto', 'auto']} 
-                          orientation="right"
-                          tick={{ fontSize: 12, fill: '#64748b' }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <Tooltip 
-                          contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                        />
-                        <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} dot={false} name="收盤價" />
-                        <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" />
-                        <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" />
-                        <Line type="monotone" dataKey="ma200" stroke="#f43f5e" strokeWidth={1.5} dot={false} name="200MA" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
+                
+                <div className="h-[300px] w-full bg-[#f8fafc] rounded-lg border border-[#e2e8f0] p-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data.chartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="date" hide />
+                      <YAxis 
+                        domain={['auto', 'auto']} 
+                        orientation="right"
+                        tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                      />
+                      <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
+                      <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
+                      <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" strokeDasharray="4 4" />
+                      <Line type="monotone" dataKey="ma200" stroke="#f43f5e" strokeWidth={1.5} dot={false} name="200MA" strokeDasharray="4 4" />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             </motion.div>
@@ -312,6 +290,27 @@ export default function App() {
     </div>
   );
 }
+
+function IndicatorRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between items-center pb-2 border-bottom border-[#f1f5f9]">
+      <span className="text-[14px] text-[#475569] font-medium">{label}</span>
+      <span className="text-[16px] font-bold text-[#0f172a]">{value}</span>
+    </div>
+  );
+}
+
+function CheckItem({ label, met }: { label: string; met: boolean }) {
+  return (
+    <div className="flex justify-between items-center pb-2 border-bottom border-[#f1f5f9]">
+      <span className="text-[14px] text-[#475569] font-medium">{label}</span>
+      <span className={cn("text-[14px] font-bold", met ? "text-[#10b981]" : "text-slate-300")}>
+        {met ? '✓' : '✕'}
+      </span>
+    </div>
+  );
+}
+
 
 function ConditionItem({ label, met, detail }: { label: string; met: boolean; detail: string }) {
   return (
