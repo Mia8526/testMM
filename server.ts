@@ -76,23 +76,19 @@ async function startServer() {
       const high52w = Math.max(...lastYearData.map(d => d.high));
       const low52w = Math.min(...lastYearData.map(d => d.low));
 
-      // Trend Template Logic
-      // 1. 收盤價 > 50MA > 150MA > 200MA
-      const condition1 = currentPrice > (ma50 || 0) && (ma50 || 0) > (ma150 || 0) && (ma150 || 0) > (ma200 || 0);
-      
-      // 2. 目前股價距離 52 週高點在 25% 以內
-      const distFromHigh = (high52w - currentPrice) / high52w;
-      const condition2 = distFromHigh <= 0.25;
-
-      // 3. 高於 52 週低點 30%
+      // Trend Template Logic (Minervini)
+      const cond1 = currentPrice > (ma150 || 0) && currentPrice > (ma200 || 0);
+      const cond2 = (ma150 || 0) > (ma200 || 0);
+      const ma200_prev = calculateSMA(closes.slice(0, -22), 200); // ~1 month ago
+      const cond3 = ma200 && ma200_prev ? ma200 > ma200_prev : false;
+      const cond4 = (ma50 || 0) > (ma150 || 0) && (ma50 || 0) > (ma200 || 0);
+      const cond5 = currentPrice > (ma50 || 0);
       const distFromLow = (currentPrice - low52w) / low52w;
-      const condition3 = distFromLow >= 0.30;
+      const cond6 = distFromLow >= 0.30;
+      const distFromHigh = (high52w - currentPrice) / high52w;
+      const cond7 = distFromHigh <= 0.25;
 
-      // 4. 200MA is trending up (extra check for Minervini)
-      const ma200_prev = calculateSMA(closes.slice(0, -20), 200); // 200MA from 20 days ago
-      const condition4 = ma200 && ma200_prev ? ma200 > ma200_prev : false;
-
-      const isTemplateMet = condition1 && condition2 && condition3;
+      const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
 
       res.json({
         symbol,
@@ -105,11 +101,15 @@ async function startServer() {
         distFromHigh: (distFromHigh * 100).toFixed(2),
         distFromLow: (distFromLow * 100).toFixed(2),
         conditions: {
-          maAlignment: condition1,
-          nearHigh: condition2,
-          aboveLow: condition3,
-          ma200Trending: condition4
+          priceAboveMAs: cond1,
+          ma150Above200: cond2,
+          ma200Trending: cond3,
+          ma50AboveOthers: cond4,
+          priceAbove50MA: cond5,
+          aboveLow30: cond6,
+          nearHigh25: cond7
         },
+        fundamentalStatus: "技術面符合，等待財報數據串接",
         isTemplateMet,
         chartData: data.slice(-200).map(d => ({
           date: format(d.date, 'yyyy-MM-dd'),

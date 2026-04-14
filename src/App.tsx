@@ -39,11 +39,15 @@ interface StockData {
   distFromHigh: string;
   distFromLow: string;
   conditions: {
-    maAlignment: boolean;
-    nearHigh: boolean;
-    aboveLow: boolean;
+    priceAboveMAs: boolean;
+    ma150Above200: boolean;
     ma200Trending: boolean;
+    ma50AboveOthers: boolean;
+    priceAbove50MA: boolean;
+    aboveLow30: boolean;
+    nearHigh25: boolean;
   };
+  fundamentalStatus: string;
   isTemplateMet: boolean;
   chartData: any[];
 }
@@ -133,6 +137,9 @@ export default function App() {
               <li>150 MA &gt; 200 MA</li>
               <li>200 MA trending up</li>
               <li>50 MA &gt; 150 & 200 MA</li>
+              <li>Price &gt; 50 MA</li>
+              <li>Price &gt; 52W Low +30%</li>
+              <li>Price within 25% of 52W High</li>
             </ol>
           </div>
         </div>
@@ -188,7 +195,11 @@ export default function App() {
               <div className="sleek-card flex flex-col md:flex-row items-end justify-between gap-6">
                 <div className="space-y-1">
                   <span className="text-[14px] text-[#64748b] font-medium uppercase tracking-wider">{data.symbol}</span>
-                  <h2 className="text-3xl font-extrabold text-[#0f172a]">台股分析報告</h2>
+                  <h2 className="text-3xl font-extrabold text-[#0f172a]">超級績效分析報告</h2>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Info className="w-4 h-4 text-amber-500" />
+                    <span className="text-sm text-amber-600 font-medium">{data.fundamentalStatus}</span>
+                  </div>
                 </div>
                 <div className="text-right space-y-2">
                   <div className={cn(
@@ -196,13 +207,13 @@ export default function App() {
                     data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
                   )}>
                     {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                    {data.isTemplateMet ? '符合趨勢模板 ✓' : '未符合模板'}
+                    {data.isTemplateMet ? '符合趨勢模板 ✓' : '未完全符合'}
                   </div>
                   <div className="text-3xl font-bold text-[#0f172a]">$ {data.currentPrice.toFixed(2)}</div>
                 </div>
               </div>
 
-              {/* Grid Layout */}
+              {/* Grid Layout - 3 Columns */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* MA Card */}
                 <div className="sleek-card">
@@ -237,13 +248,17 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Checklist Card */}
+                {/* Checklist Card - Nine Grid Style */}
                 <div className="sleek-card">
-                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">符合條件清單</span>
-                  <div className="space-y-3">
-                    <CheckItem label="收盤價 > 50 > 150 > 200" met={data.conditions.maAlignment} />
-                    <CheckItem label="距離 52W 高點 < 25%" met={data.conditions.nearHigh} />
-                    <CheckItem label="高於 52W 低點 > 30%" met={data.conditions.aboveLow} />
+                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">趨勢模板檢查 (Minervini)</span>
+                  <div className="grid grid-cols-1 gap-2">
+                    <CheckItem label="價格 > 150MA & 200MA" met={data.conditions.priceAboveMAs} />
+                    <CheckItem label="150MA > 200MA" met={data.conditions.ma150Above200} />
+                    <CheckItem label="200MA 向上趨勢 (1月)" met={data.conditions.ma200Trending} />
+                    <CheckItem label="50MA > 150MA & 200MA" met={data.conditions.ma50AboveOthers} />
+                    <CheckItem label="價格 > 50MA" met={data.conditions.priceAbove50MA} />
+                    <CheckItem label="高於 52W 低點 > 30%" met={data.conditions.aboveLow30} />
+                    <CheckItem label="距離 52W 高點 < 25%" met={data.conditions.nearHigh25} />
                   </div>
                 </div>
               </div>
