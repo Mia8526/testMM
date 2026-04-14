@@ -1,0 +1,6 @@
+{
+  "name": "台股 Minervini 趨勢模板查詢",
+  "description": "查詢台股是否符合 Mark Minervini 的趨勢模板邏輯，包含 50/150/200 MA 判斷與 52 週高低點分析。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
