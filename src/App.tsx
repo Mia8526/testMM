@@ -111,7 +111,9 @@ export default function App() {
   };
 
   // Helper to get pivot message
-  const getPivotMessage = (dist: number) => {
+  const getPivotMessage = (dist: number, pivotPrice: number) => {
+    if (pivotPrice === 0) return { text: "尚未形成新平台 (起漲噴發中)", color: "text-amber-600 bg-amber-50" };
+    if (dist > 10) return { text: "已遠離樞紐點，風險過高，請勿追價", color: "text-rose-600 bg-rose-50" };
     if (dist >= 0 && dist <= 2) return { text: "🚀 樞紐點突破，符合進場區！", color: "text-emerald-600 bg-emerald-50" };
     if (dist < 0 && dist >= -3) return { text: "靠近樞紐點，觀察放量突破", color: "text-blue-600 bg-blue-50" };
     if (dist > 5) return { text: "⚠️ 已過度伸展，請勿追高", color: "text-rose-600 bg-rose-50" };
@@ -289,8 +291,8 @@ export default function App() {
                 <div className="sleek-card flex flex-col">
                   <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">樞紐點與區間</span>
                   <div className="space-y-3 flex-1">
-                    <IndicatorRow label="樞紐價格" value={`${data.currency} ${data.pivotPrice.toFixed(2)}`} />
-                    <IndicatorRow label="距離樞紐" value={`${data.distFromPivot}%`} />
+                    <IndicatorRow label="樞紐價格" value={data.pivotPrice > 0 ? `${data.currency} ${data.pivotPrice.toFixed(2)}` : "尚未形成平台"} />
+                    <IndicatorRow label="距離樞紐" value={data.pivotPrice > 0 ? `${data.distFromPivot}%` : "-"} />
                     
                     <div className="pt-2">
                       <span className="text-[10px] text-[#64748b] font-bold uppercase">52 週股價位置</span>
@@ -306,9 +308,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  {getPivotMessage(parseFloat(data.distFromPivot)) && (
-                    <div className={cn("mt-4 p-3 rounded-lg text-xs font-bold text-center", getPivotMessage(parseFloat(data.distFromPivot))?.color)}>
-                      {getPivotMessage(parseFloat(data.distFromPivot))?.text}
+                  {getPivotMessage(parseFloat(data.distFromPivot), data.pivotPrice) && (
+                    <div className={cn("mt-4 p-3 rounded-lg text-xs font-bold text-center", getPivotMessage(parseFloat(data.distFromPivot), data.pivotPrice)?.color)}>
+                      {getPivotMessage(parseFloat(data.distFromPivot), data.pivotPrice)?.text}
                     </div>
                   )}
                 </div>
@@ -356,7 +358,9 @@ export default function App() {
                       <Tooltip 
                         contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                       />
-                      <ReferenceLine y={data.pivotPrice} stroke="#94a3b8" strokeDasharray="3 3" label={{ position: 'right', value: 'PIVOT', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
+                      {data.pivotPrice > 0 && (
+                        <ReferenceLine y={data.pivotPrice} stroke="#94a3b8" strokeDasharray="3 3" label={{ position: 'right', value: 'PIVOT', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
+                      )}
                       <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
                       <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
                       <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" strokeDasharray="4 4" />

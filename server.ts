@@ -103,10 +103,41 @@ async function startServer() {
       // Extension from 50MA Calculation
       const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
 
-      // Pivot Point Calculation (Highest closing price in last 20 days)
-      const last20Days = data.slice(-20);
-      const pivotPrice = Math.max(...last20Days.map(d => d.close));
-      const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
+      // Stabilized Pivot Point Logic (Base Detection)
+      // Look back 60 days to find the most recent "flat" base
+      let stabilizedPivot = 0;
+      let foundBase = false;
+      const lookback = 60;
+      const baseLength = 10;
+      const baseVolatility = 0.05; // 5%
+
+      const startIndex = data.length - 1;
+      const searchEnd = Math.max(0, data.length - lookback);
+
+      for (let i = startIndex; i >= searchEnd + baseLength; i--) {
+        const slice = data.slice(i - baseLength, i);
+        const highs = slice.map(d => d.high);
+        const lows = slice.map(d => d.low);
+        const maxHigh = Math.max(...highs);
+        const minLow = Math.min(...lows);
+        
+        if ((maxHigh - minLow) / minLow <= baseVolatility) {
+          if (ma50Extension < 15 || maxHigh < currentPrice * 0.95) {
+            stabilizedPivot = maxHigh;
+            foundBase = true;
+            break;
+          }
+        }
+      }
+
+      // If no base found in 60 days or highly extended, signal "No new base formed"
+      const pivotPrice = foundBase && ma50Extension < 40 ? stabilizedPivot : 0;
+      const distFromPivot = pivotPrice > 0 ? ((currentPrice - pivotPrice) / pivotPrice) * 100 : 0;
+
+      // Pivot Point Calculation (Highest closing price in last 20 days) - REMOVED OLD LOGIC
+      // const last20Days = data.slice(-20);
+      // const pivotPrice = Math.max(...last20Days.map(d => d.close));
+      // const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
 
       // 52-week data (approx 252 trading days)
       const lastYearData = data.slice(-252);
