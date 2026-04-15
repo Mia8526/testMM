@@ -29,6 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let result: any[] = [];
     let marketType = '';
     let shortName = '';
+    let currency = 'NT$';
 
     // Helper to fetch data with fallback
     const fetchData = async (sym: string) => {
@@ -50,14 +51,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let fetchResult = null;
 
-    if (/^\d{4}$/.test(symbol)) {
-      // Try .TW first
+    if (/^\d+$/.test(symbol)) {
+      // Pure numeric: Taiwan stock logic
       fetchResult = await fetchData(`${symbol}.TW`);
       if (fetchResult) {
         symbol = `${symbol}.TW`;
         marketType = '上市';
       } else {
-        // Try .TWO if .TW fails
         fetchResult = await fetchData(`${symbol}.TWO`);
         if (fetchResult) {
           symbol = `${symbol}.TWO`;
@@ -65,8 +65,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
     } else {
+      // Contains letters: US stock logic
       fetchResult = await fetchData(symbol);
-      marketType = symbol.endsWith('.TWO') ? '上櫃' : '上市';
+      if (fetchResult) {
+        marketType = '美股';
+        currency = '$';
+      }
     }
 
     if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
@@ -93,6 +97,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ma150 = calculateSMA(closes, 150);
     const ma200 = calculateSMA(closes, 200);
 
+    // Pivot Point Calculation (Highest in last 20 days)
+    const last20Days = data.slice(-20);
+    const pivotPrice = Math.max(...last20Days.map(d => d.high));
+    const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
+
     // 52-week data
     const lastYearData = data.slice(-252);
     const high52w = Math.max(...lastYearData.map(d => d.high));
@@ -116,10 +125,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       symbol,
       shortName,
       marketType,
+      currency,
       currentPrice,
       ma50,
       ma150,
       ma200,
+      pivotPrice,
+      distFromPivot: distFromPivot.toFixed(2),
       high52w,
       low52w,
       distFromHigh: (distFromHigh * 100).toFixed(2),

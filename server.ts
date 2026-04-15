@@ -29,30 +29,59 @@ async function startServer() {
         return res.status(400).json({ error: '請提供股票代碼 (ticker)' });
       }
       let symbol = ticker.toUpperCase();
-      
-      // Auto-append .TW if it's a 4-digit numeric code (Taiwan stock)
-      if (/^\d{4}$/.test(symbol)) {
-        symbol = `${symbol}.TW`;
-      } else if (!symbol.includes('.')) {
-        // Fallback for other Taiwan stocks like 2330.TWO
-        symbol = `${symbol}.TW`;
-      }
+      let result: any[] = [];
+      let marketType = '';
+      let shortName = '';
+      let currency = 'NT$';
 
-      // Fetch historical data for the last 1.5 years to calculate 200MA and 52-week high/low
-      const endDate = new Date();
-      const startDate = subDays(endDate, 550); // ~1.5 years
-
-      const queryOptions = {
-        period1: startDate,
-        period2: endDate,
-        interval: '1d' as const,
+      // Helper to fetch data with fallback
+      const fetchData = async (sym: string) => {
+        try {
+          const endDate = new Date();
+          const startDate = subDays(endDate, 550);
+          const queryOptions = {
+            period1: startDate,
+            period2: endDate,
+            interval: '1d' as const,
+          };
+          const historical = await yahooFinance.historical(sym, queryOptions);
+          const quote = await yahooFinance.quote(sym);
+          return { historical, quote };
+        } catch (e) {
+          return null;
+        }
       };
 
-      const result = await yahooFinance.historical(symbol, queryOptions) as any[];
-      
-      if (!result || result.length === 0) {
-        return res.status(404).json({ error: '找不到該股票數據' });
+      let fetchResult = null;
+
+      if (/^\d+$/.test(symbol)) {
+        // Pure numeric: Taiwan stock logic
+        fetchResult = await fetchData(`${symbol}.TW`);
+        if (fetchResult) {
+          symbol = `${symbol}.TW`;
+          marketType = '上市';
+        } else {
+          fetchResult = await fetchData(`${symbol}.TWO`);
+          if (fetchResult) {
+            symbol = `${symbol}.TWO`;
+            marketType = '上櫃';
+          }
+        }
+      } else {
+        // Contains letters: US stock logic
+        fetchResult = await fetchData(symbol);
+        if (fetchResult) {
+          marketType = '美股';
+          currency = '$';
+        }
       }
+
+      if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
+        return res.status(404).json({ error: `找不到股票數據: ${ticker}` });
+      }
+
+      result = fetchResult.historical;
+      shortName = fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
 
       // Sort by date ascending
       const data = result.filter((d: any) => d.close !== null).sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
@@ -70,6 +99,11 @@ async function startServer() {
       const ma50 = calculateSMA(closes, 50);
       const ma150 = calculateSMA(closes, 150);
       const ma200 = calculateSMA(closes, 200);
+
+      // Pivot Point Calculation (Highest in last 20 days)
+      const last20Days = data.slice(-20);
+      const pivotPrice = Math.max(...last20Days.map(d => d.high));
+      const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
 
       // 52-week data (approx 252 trading days)
       const lastYearData = data.slice(-252);
@@ -92,10 +126,15 @@ async function startServer() {
 
       res.json({
         symbol,
+        shortName,
+        marketType,
+        currency,
         currentPrice,
         ma50,
         ma150,
         ma200,
+        pivotPrice,
+        distFromPivot: distFromPivot.toFixed(2),
         high52w,
         low52w,
         distFromHigh: (distFromHigh * 100).toFixed(2),
