@@ -100,9 +100,12 @@ async function startServer() {
       const ma150 = calculateSMA(closes, 150);
       const ma200 = calculateSMA(closes, 200);
 
-      // Pivot Point Calculation (Highest in last 20 days)
+      // Extension from 50MA Calculation
+      const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
+
+      // Pivot Point Calculation (Highest closing price in last 20 days)
       const last20Days = data.slice(-20);
-      const pivotPrice = Math.max(...last20Days.map(d => d.high));
+      const pivotPrice = Math.max(...last20Days.map(d => d.close));
       const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
 
       // 52-week data (approx 252 trading days)
@@ -133,6 +136,7 @@ async function startServer() {
         ma50,
         ma150,
         ma200,
+        ma50Extension: ma50Extension.toFixed(2),
         pivotPrice,
         distFromPivot: distFromPivot.toFixed(2),
         high52w,

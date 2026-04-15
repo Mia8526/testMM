@@ -38,6 +38,7 @@ interface StockData {
   ma50: number;
   ma150: number;
   ma200: number;
+  ma50Extension: string;
   pivotPrice: number;
   distFromPivot: string;
   high52w: number;
@@ -114,7 +115,15 @@ export default function App() {
     if (dist >= 0 && dist <= 2) return { text: "🚀 樞紐點突破，符合進場區！", color: "text-emerald-600 bg-emerald-50" };
     if (dist < 0 && dist >= -3) return { text: "靠近樞紐點，觀察放量突破", color: "text-blue-600 bg-blue-50" };
     if (dist > 5) return { text: "⚠️ 已過度伸展，請勿追高", color: "text-rose-600 bg-rose-50" };
+    if (dist < -5) return { text: "目前處於整理區，距離突破點尚有段距離", color: "text-slate-500 bg-slate-50" };
     return null;
+  };
+
+  // Helper to get extension alert
+  const getExtensionAlert = (ext: number) => {
+    if (ext < 15) return { text: "✅ 股價位階健康", color: "text-emerald-600" };
+    if (ext >= 15 && ext <= 25) return { text: "⚠️ 股價已過度伸展，請謹慎追高", color: "text-amber-600" };
+    return { text: "🚨 高度過熱！請等待回檔或橫盤整理", color: "text-rose-600" };
   };
 
   return (
@@ -220,7 +229,9 @@ export default function App() {
                     <span className="text-[14px] text-[#64748b] font-medium uppercase tracking-wider">{data.symbol}</span>
                     <span className={cn(
                       "px-2 py-0.5 text-[11px] font-bold rounded uppercase",
-                      data.marketType === '美股' ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-600"
+                      data.marketType === '美股' ? "bg-blue-50 text-blue-600" : 
+                      data.marketType === '上市' ? "bg-blue-100 text-blue-700" :
+                      "bg-purple-100 text-purple-700"
                     )}>{data.marketType}</span>
                   </div>
                   <div className="flex items-baseline gap-3">
@@ -233,12 +244,19 @@ export default function App() {
                   </div>
                 </div>
                 <div className="text-right space-y-2">
-                  <div className={cn(
-                    "inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[14px] font-bold",
-                    data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
-                  )}>
-                    {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                    {data.isTemplateMet ? '符合趨勢模板 ✓' : '未完全符合'}
+                  <div className="flex items-center justify-end gap-2">
+                    {parseFloat(data.ma50Extension) > 25 && (
+                      <div className="px-3 py-1 bg-rose-50 text-rose-600 text-[12px] font-bold rounded-full border border-rose-100">
+                        過熱待觀察
+                      </div>
+                    )}
+                    <div className={cn(
+                      "inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[14px] font-bold",
+                      data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
+                    )}>
+                      {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                      {data.isTemplateMet ? '符合趨勢模板 ✓' : '未完全符合'}
+                    </div>
                   </div>
                   <div className="text-3xl font-bold text-[#0f172a]">{data.currency} {data.currentPrice.toFixed(2)}</div>
                 </div>
@@ -253,21 +271,46 @@ export default function App() {
                     <IndicatorRow label="50 MA" value={`${data.currency} ${data.ma50?.toFixed(1) || '-'}`} />
                     <IndicatorRow label="150 MA" value={`${data.currency} ${data.ma150?.toFixed(1) || '-'}`} />
                     <IndicatorRow label="200 MA" value={`${data.currency} ${data.ma200?.toFixed(1) || '-'}`} />
+                    <div className="pt-3 border-t border-slate-50">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[13px] text-[#64748b] font-medium">50MA 乖離率</span>
+                        <span className={cn("text-[15px] font-bold", getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
+                          {data.ma50Extension}%
+                        </span>
+                      </div>
+                      <p className={cn("text-[11px] font-bold mt-1.5", getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
+                        {getExtensionAlert(parseFloat(data.ma50Extension)).text}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
                 {/* Pivot Point Card */}
-                <div className="sleek-card">
-                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">預計樞紐點 (Pivot)</span>
-                  <div className="space-y-3">
+                <div className="sleek-card flex flex-col">
+                  <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">樞紐點與區間</span>
+                  <div className="space-y-3 flex-1">
                     <IndicatorRow label="樞紐價格" value={`${data.currency} ${data.pivotPrice.toFixed(2)}`} />
                     <IndicatorRow label="距離樞紐" value={`${data.distFromPivot}%`} />
-                    {getPivotMessage(parseFloat(data.distFromPivot)) && (
-                      <div className={cn("mt-4 p-3 rounded-lg text-xs font-bold text-center", getPivotMessage(parseFloat(data.distFromPivot))?.color)}>
-                        {getPivotMessage(parseFloat(data.distFromPivot))?.text}
+                    
+                    <div className="pt-2">
+                      <span className="text-[10px] text-[#64748b] font-bold uppercase">52 週股價位置</span>
+                      <div className="h-2 bg-[#e2e8f0] rounded-full mt-2 relative overflow-hidden">
+                        <div 
+                          className={cn("absolute h-full rounded-full transition-all duration-500", getRangeBarColor(data.currentPrice, data.low52w, data.high52w))}
+                          style={{ width: `${Math.min(100, Math.max(0, ((data.currentPrice - data.low52w) / (data.high52w - data.low52w)) * 100))}%` }}
+                        />
                       </div>
-                    )}
+                      <div className="flex justify-between text-[10px] text-[#94a3b8] mt-1 font-medium">
+                        <span>Low</span>
+                        <span>High</span>
+                      </div>
+                    </div>
                   </div>
+                  {getPivotMessage(parseFloat(data.distFromPivot)) && (
+                    <div className={cn("mt-4 p-3 rounded-lg text-xs font-bold text-center", getPivotMessage(parseFloat(data.distFromPivot))?.color)}>
+                      {getPivotMessage(parseFloat(data.distFromPivot))?.text}
+                    </div>
+                  )}
                 </div>
 
                 {/* Checklist Card - Nine Grid Style */}
