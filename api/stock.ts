@@ -100,45 +100,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Extension from 50MA Calculation
     const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
 
-    // Stabilized Pivot Point Logic (Base Detection)
-    // Look back 60 days to find the most recent "flat" base
-    let stabilizedPivot = 0;
-    let foundBase = false;
-    const lookback = 60;
-    const baseLength = 10;
-    const baseVolatility = 0.05; // 5%
-
-    // Iterate backwards from the end of the data to find the most recent stable base
-    // We skip the most recent few days if the stock is currently in a parabolic extension (>15% from 50MA)
-    const startIndex = data.length - 1;
-    const searchEnd = Math.max(0, data.length - lookback);
-
-    for (let i = startIndex; i >= searchEnd + baseLength; i--) {
-      const slice = data.slice(i - baseLength, i);
-      const highs = slice.map(d => d.high);
-      const lows = slice.map(d => d.low);
-      const maxHigh = Math.max(...highs);
-      const minLow = Math.min(...lows);
-      
-      // Check if volatility within this slice is within 5%
-      if ((maxHigh - minLow) / minLow <= baseVolatility) {
-        // If we are currently extended (>15% from 50MA), we want the pivot BEFORE the current run
-        // So we only accept a base if its max price is significantly below current price 
-        // OR if the current price is NOT extended.
-        if (ma50Extension < 15 || maxHigh < currentPrice * 0.95) {
-          stabilizedPivot = maxHigh;
-          foundBase = true;
-          break;
-        }
-      }
-    }
-
-    // If no base found in 60 days or highly extended (like 6274 with 65% extension), 
-    // we signal "No new base formed"
-    const pivotPrice = foundBase && ma50Extension < 40 ? stabilizedPivot : 0;
-    const distFromPivot = pivotPrice > 0 ? ((currentPrice - pivotPrice) / pivotPrice) * 100 : 0;
+    // Pivot Radar Logic (Simplified as per user request)
+    const last20Days = data.slice(-20);
+    const last20DaysClose = last20Days.map(d => d.close);
+    const pivotPrice = Math.max(...last20DaysClose);
     const buyZoneMax = pivotPrice * 1.05;
-    const priceGap = pivotPrice > 0 ? pivotPrice - currentPrice : 0;
+    const suggestedStopLoss = pivotPrice * 0.92;
+    const priceGap = pivotPrice - currentPrice;
+    const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
 
     // 52-week data
     const lastYearData = data.slice(-252);
@@ -169,10 +138,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ma150,
       ma200,
       ma50Extension: ma50Extension.toFixed(2),
+      extensionFrom50MA: ma50Extension.toFixed(2),
       pivotPrice,
       buyZoneMax,
+      suggestedStopLoss,
       priceGap,
-      distFromPivot: distFromPivot.toFixed(2),
+      distanceFromPivot: distFromPivot.toFixed(2),
       high52w,
       low52w,
       distFromHigh: (distFromHigh * 100).toFixed(2),

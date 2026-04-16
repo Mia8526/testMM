@@ -44,10 +44,12 @@ interface StockData {
   ma150: number;
   ma200: number;
   ma50Extension: string;
+  extensionFrom50MA: string;
   pivotPrice: number;
   buyZoneMax: number;
+  suggestedStopLoss: number;
   priceGap: number;
-  distFromPivot: string;
+  distanceFromPivot: string;
   high52w: number;
   low52w: number;
   distFromHigh: string;
@@ -74,6 +76,7 @@ interface WatchlistItem {
   price: number;
   currency: string;
   pivotPrice: number;
+  suggestedStopLoss: number;
   ma50Extension: string;
   extensionText: string;
   failedConditions: string[];
@@ -121,6 +124,7 @@ export default function App() {
       price: data.currentPrice,
       currency: data.currency,
       pivotPrice: data.pivotPrice,
+      suggestedStopLoss: data.suggestedStopLoss,
       ma50Extension: data.ma50Extension,
       extensionText: getExtensionAlert(parseFloat(data.ma50Extension)).text,
       failedConditions: failed
@@ -149,13 +153,14 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破目標價", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
       item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
+      item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-",
       `${item.ma50Extension}%`,
       item.extensionText,
       item.failedConditions.join('; ')
@@ -236,7 +241,7 @@ export default function App() {
   const getExtensionAlert = (ext: number) => {
     if (ext < 15) return { text: "✅ 股價位階健康", color: "text-emerald-600" };
     if (ext >= 15 && ext <= 25) return { text: "⚠️ 股價已過度伸展，請謹慎追高", color: "text-amber-600" };
-    return { text: "🚨 高度過熱！請等待回檔或橫盤整理", color: "text-rose-600" };
+    return { text: "🚨 高度過熱，請勿追價", color: "text-rose-600" };
   };
 
   return (
@@ -369,6 +374,7 @@ export default function App() {
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">建議停損</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">待滿足條件</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
@@ -385,6 +391,9 @@ export default function App() {
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
                           <td className="px-6 py-4 text-sm font-bold text-slate-900">
                             {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-bold text-rose-600">
+                            {item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-"}
                           </td>
                           <td className="px-6 py-4">
                             <div className={cn("text-sm font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
@@ -509,7 +518,7 @@ export default function App() {
                         </button>
                         {parseFloat(data.ma50Extension) > 25 && (
                           <div className="px-3 py-1 bg-rose-50 text-rose-600 text-[12px] font-bold rounded-full border border-rose-100">
-                            過熱待觀察
+                            🚨 高度過熱，請勿追價
                           </div>
                         )}
                         <div className={cn(
@@ -547,46 +556,36 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Pivot Point Card (Price Radar) */}
+                    {/* 升級後的樞紐雷達區塊 */}
                     <div className={cn(
-                      "sleek-card flex flex-col transition-all duration-500",
-                      data.pivotPrice > 0 && Math.abs(parseFloat(data.distFromPivot)) < 2 && "bg-amber-50/50 animate-pulse border-amber-200"
+                      "bg-white p-6 rounded-xl border border-slate-200 transition-all duration-500",
+                      data.pivotPrice > 0 && Math.abs(parseFloat(data.distanceFromPivot)) < 2 && "bg-amber-50/50 animate-pulse border-amber-200"
                     )}>
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">價格雷達 (Price Radar)</span>
-                        {data.pivotPrice > 0 && Math.abs(parseFloat(data.distFromPivot)) < 2 && (
-                          <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">準備突破！</span>
+                      <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                        🎯 預計樞紐雷達
+                        {data.pivotPrice > 0 && Math.abs(parseFloat(data.distanceFromPivot)) < 2 && (
+                          <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full animate-none">準備突破！</span>
                         )}
-                      </div>
-                      
-                      <div className="space-y-3 flex-1">
-                        <div className="flex flex-col gap-1 pb-2 border-bottom border-[#f1f5f9]">
-                          <span className="text-[13px] text-[#475569] font-medium">突破目標價</span>
-                          <span className="text-[24px] font-black text-[#0f172a]">
-                            {data.pivotPrice > 0 ? `${data.currency} ${data.pivotPrice.toFixed(2)}` : "尚未形成平台"}
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-sm text-slate-500">突破目標價</p>
+                          <p className="text-3xl font-black text-blue-600">{data.currency} {data.pivotPrice.toFixed(2)}</p>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">距離突破點</span>
+                          <span className={cn("text-sm font-bold", data.priceGap > 0 ? "text-orange-500" : "text-green-600")}>
+                            {data.distanceFromPivot}% (還差 {data.currency}{Math.abs(data.priceGap).toFixed(1)})
                           </span>
                         </div>
-
-                        <IndicatorRow 
-                          label="價格差距" 
-                          value={data.pivotPrice > 0 ? (
-                            <span className={parseFloat(data.distFromPivot) > 0 ? "text-emerald-600" : "text-rose-600"}>
-                              {data.distFromPivot}% ({parseFloat(data.distFromPivot) > 0 ? "+" : ""}{data.currency}{data.priceGap.toFixed(2)})
-                            </span>
-                          ) : "-"} 
-                        />
-                        
-                        {data.pivotPrice > 0 && (
-                          <div className="pt-2">
-                            <span className="text-[11px] text-[#64748b] font-bold uppercase">最佳買入區間 (Buy Zone)</span>
-                            <div className="text-[14px] font-bold text-emerald-600 mt-1">
-                              {data.currency}{data.pivotPrice.toFixed(2)} ~ {data.currency}{data.buyZoneMax.toFixed(2)}
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-1 leading-tight">
-                              * 樞紐價至追價上限 5% 區間
-                            </p>
-                          </div>
-                        )}
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                          <p className="text-xs text-slate-500 mb-1">最佳進場區 (Pivot ~ +5%)</p>
+                          <p className="text-sm font-mono font-bold">{data.pivotPrice.toFixed(2)} ~ {data.buyZoneMax.toFixed(2)}</p>
+                        </div>
+                        <div className="p-3 border-l-4 border-red-500 bg-red-50">
+                          <p className="text-xs text-red-600 font-bold">參考停損點 (-8%)</p>
+                          <p className="text-sm font-mono font-bold text-red-700">{data.currency} {data.suggestedStopLoss.toFixed(2)}</p>
+                        </div>
 
                         <div className="pt-2">
                           <span className="text-[10px] text-[#64748b] font-bold uppercase">52 週股價位置</span>
@@ -602,11 +601,6 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                      {getPivotMessage(parseFloat(data.distFromPivot), data.pivotPrice) && (
-                        <div className={cn("mt-4 p-3 rounded-lg text-xs font-bold text-center", getPivotMessage(parseFloat(data.distFromPivot), data.pivotPrice)?.color)}>
-                          {getPivotMessage(parseFloat(data.distFromPivot), data.pivotPrice)?.text}
-                        </div>
-                      )}
                     </div>
 
                     {/* Checklist Card - Nine Grid Style */}
