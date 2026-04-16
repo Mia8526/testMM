@@ -124,10 +124,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Extension from 50MA Calculation
     const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
 
-    // Pivot Radar Logic (Simplified as per user request)
-    const last20Days = data.slice(-20);
-    const last20DaysClose = last20Days.map(d => d.close);
-    const pivotPrice = Math.max(...last20DaysClose);
+    // Advanced Pivot Radar Logic (Stable Base Finding)
+    const last60Days = data.slice(-60);
+    let pivotPrice = 0;
+    let foundBase = false;
+
+    // 1. Check for Trend Break (Price below 50MA for > 3 days)
+    const recentCloses = data.slice(-3);
+    const isTrendBroken = ma50 ? recentCloses.every(d => d.close < ma50) : false;
+
+    // 2. Search for the most recent "Stable Base" (5 days, < 8% volatility)
+    // We search backwards to find the most recent consolidation
+    for (let i = data.length - 1; i >= Math.max(0, data.length - 60); i--) {
+      if (i < 4) continue;
+      
+      const window = data.slice(i - 4, i + 1);
+      const highs = window.map(d => d.high);
+      const lows = window.map(d => d.low);
+      const windowCloses = window.map(d => d.close);
+      
+      const maxHigh = Math.max(...highs);
+      const minLow = Math.min(...lows);
+      const volatility = (maxHigh - minLow) / minLow;
+
+      if (volatility < 0.08) {
+        pivotPrice = Math.max(...windowCloses);
+        foundBase = true;
+        // If we found a base, and the price hasn't broken the trend since then, 
+        // we lock this pivot. We stop at the first (most recent) base found.
+        break;
+      }
+    }
+
+    // 3. Fallback or Reset logic
+    if (!foundBase || isTrendBroken) {
+      // If no base found in 60 days or trend is broken, 
+      // use the standard 20-day high as a temporary pivot
+      const last20Days = data.slice(-20);
+      pivotPrice = Math.max(...last20Days.map(d => d.close));
+    }
+    
     const buyZoneMax = pivotPrice * 1.05;
     const suggestedStopLoss = pivotPrice * 0.92;
     const priceGap = pivotPrice - currentPrice;

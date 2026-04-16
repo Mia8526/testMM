@@ -544,7 +544,10 @@ export default function App() {
                           {data.isTemplateMet ? '符合趨勢模板 ✓' : '未完全符合'}
                         </div>
                       </div>
-                      <div className="text-3xl font-bold text-[#0f172a]">{data.currency} {data.currentPrice.toFixed(2)}</div>
+                      <div className="text-3xl font-bold text-[#0f172a]">
+                        <span className="text-xs text-slate-400 font-medium block mb-1">昨日收盤價 (Last Close)</span>
+                        {data.currency} {data.currentPrice.toFixed(2)}
+                      </div>
                     </div>
                   </div>
 
@@ -601,7 +604,7 @@ export default function App() {
                             "text-sm font-black",
                             data.vcpStatus.includes("突破") ? "text-rose-600" : "text-blue-700"
                           )}>
-                            {data.vcpStatus}
+                            {data.vcpStatus} {data.vcpStatus === "整理中" && data.isVolumeContracted && "(震盪收斂中)"}
                           </p>
                         </div>
                         <div>
@@ -617,6 +620,12 @@ export default function App() {
                         <div className="p-3 bg-slate-50 rounded-lg">
                           <p className="text-xs text-slate-500 mb-1">最佳進場區 (Pivot ~ +5%)</p>
                           <p className="text-sm font-mono font-bold">{data.pivotPrice.toFixed(2)} ~ {data.buyZoneMax.toFixed(2)}</p>
+                          {data.currentPrice >= data.pivotPrice && data.currentPrice <= data.buyZoneMax && (
+                            <p className="text-[10px] text-emerald-600 font-bold mt-1">🚀 買入區間</p>
+                          )}
+                          {data.currentPrice > data.buyZoneMax && (
+                            <p className="text-[10px] text-rose-500 font-bold mt-1">⚠️ 目前已過度伸展 (Extended)，不建議進場，請等待下一個基地形成。</p>
+                          )}
                         </div>
                         <div className="p-3 border-l-4 border-red-500 bg-red-50">
                           <p className="text-xs text-red-600 font-bold">參考停損點 (-8%)</p>
