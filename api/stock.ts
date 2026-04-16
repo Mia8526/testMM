@@ -97,6 +97,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ma150 = calculateSMA(closes, 150);
     const ma200 = calculateSMA(closes, 200);
 
+    // Volume Contraction Logic
+    const volumes = data.map(d => d.volume || 0);
+    const calculateAvg = (vals: number[], period: number) => {
+      if (vals.length < period) return 0;
+      return vals.slice(-period).reduce((a, b) => a + b, 0) / period;
+    };
+    const vol5 = calculateAvg(volumes, 5);
+    const vol20 = calculateAvg(volumes, 20);
+    const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
+    const currentVolume = volumes[volumes.length - 1];
+
+    // Local Pivot (last 5 days high)
+    const last5Days = data.slice(-5);
+    const localPivot = Math.max(...last5Days.map(d => d.high));
+
+    // VCP Status
+    let vcpStatus = "整理中";
+    const isNearLocalPivot = currentPrice >= localPivot * 0.98 && currentPrice <= localPivot * 1.02;
+    if (currentPrice > localPivot && currentVolume > vol20) {
+      vcpStatus = "突破 VCP 買點！";
+    } else if (isNearLocalPivot && isVolumeContracted) {
+      vcpStatus = "緊縮：等待突破";
+    }
+
     // Extension from 50MA Calculation
     const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
 
@@ -139,6 +163,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ma200,
       ma50Extension: ma50Extension.toFixed(2),
       extensionFrom50MA: ma50Extension.toFixed(2),
+      isVolumeContracted,
+      localPivot,
+      vcpStatus,
       pivotPrice,
       buyZoneMax,
       suggestedStopLoss,

@@ -45,6 +45,9 @@ interface StockData {
   ma200: number;
   ma50Extension: string;
   extensionFrom50MA: string;
+  isVolumeContracted: boolean;
+  localPivot: number;
+  vcpStatus: string;
   pivotPrice: number;
   buyZoneMax: number;
   suggestedStopLoss: number;
@@ -239,9 +242,21 @@ export default function App() {
 
   // Helper to get extension alert
   const getExtensionAlert = (ext: number) => {
-    if (ext < 15) return { text: "✅ 股價位階健康", color: "text-emerald-600" };
-    if (ext >= 15 && ext <= 25) return { text: "⚠️ 股價已過度伸展，請謹慎追高", color: "text-amber-600" };
-    return { text: "🚨 高度過熱，請勿追價", color: "text-rose-600" };
+    if (ext < 15) return { 
+      text: "✅ 股價位階健康", 
+      color: "text-emerald-700", 
+      bg: "bg-emerald-50 border-emerald-100" 
+    };
+    if (ext >= 15 && ext <= 25) return { 
+      text: "⚠️ 股價已過度伸展，請謹慎追高", 
+      color: "text-amber-700", 
+      bg: "bg-amber-50 border-amber-100" 
+    };
+    return { 
+      text: "🚨 高度過熱，請勿追價", 
+      color: "text-rose-700", 
+      bg: "bg-rose-50 border-rose-100 animate-pulse" 
+    };
   };
 
   return (
@@ -537,7 +552,14 @@ export default function App() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* MA Card */}
                     <div className="sleek-card">
-                      <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">移動平均線 (MA)</span>
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">移動平均線 (MA)</span>
+                        {data.isVolumeContracted && (
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded border border-blue-100 animate-pulse">
+                            量縮中
+                          </span>
+                        )}
+                      </div>
                       <div className="space-y-3">
                         <IndicatorRow label="50 MA" value={`${data.currency} ${data.ma50?.toFixed(1) || '-'}`} />
                         <IndicatorRow label="150 MA" value={`${data.currency} ${data.ma150?.toFixed(1) || '-'}`} />
@@ -549,9 +571,14 @@ export default function App() {
                               {data.ma50Extension}%
                             </span>
                           </div>
-                          <p className={cn("text-[11px] font-bold mt-1.5", getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
-                            {getExtensionAlert(parseFloat(data.ma50Extension)).text}
-                          </p>
+                          <div className={cn(
+                            "mt-2 p-2 rounded-lg border text-center transition-all duration-500",
+                            getExtensionAlert(parseFloat(data.ma50Extension)).bg
+                          )}>
+                            <p className={cn("text-[11px] font-bold", getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
+                              {getExtensionAlert(parseFloat(data.ma50Extension)).text}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -559,7 +586,7 @@ export default function App() {
                     {/* 升級後的樞紐雷達區塊 */}
                     <div className={cn(
                       "bg-white p-6 rounded-xl border border-slate-200 transition-all duration-500",
-                      data.pivotPrice > 0 && Math.abs(parseFloat(data.distanceFromPivot)) < 2 && "bg-amber-50/50 animate-pulse border-amber-200"
+                      (data.pivotPrice > 0 && Math.abs(parseFloat(data.distanceFromPivot)) < 2) || data.vcpStatus.includes("突破") ? "bg-amber-50/50 animate-pulse border-amber-200" : ""
                     )}>
                       <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                         🎯 預計樞紐雷達
@@ -568,6 +595,15 @@ export default function App() {
                         )}
                       </h3>
                       <div className="space-y-4">
+                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                          <p className="text-xs text-blue-600 font-bold mb-1">目前狀態</p>
+                          <p className={cn(
+                            "text-sm font-black",
+                            data.vcpStatus.includes("突破") ? "text-rose-600" : "text-blue-700"
+                          )}>
+                            {data.vcpStatus}
+                          </p>
+                        </div>
                         <div>
                           <p className="text-sm text-slate-500">突破目標價</p>
                           <p className="text-3xl font-black text-blue-600">{data.currency} {data.pivotPrice.toFixed(2)}</p>
@@ -648,6 +684,9 @@ export default function App() {
                           />
                           {data.pivotPrice > 0 && (
                             <ReferenceLine y={data.pivotPrice} stroke="#94a3b8" strokeDasharray="3 3" label={{ position: 'right', value: 'PIVOT', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
+                          )}
+                          {data.localPivot > 0 && (
+                            <ReferenceLine y={data.localPivot} stroke="#7dd3fc" strokeDasharray="3 3" label={{ position: 'left', value: 'Local Pivot', fill: '#7dd3fc', fontSize: 9, fontWeight: 'bold' }} />
                           )}
                           <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
                           <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
