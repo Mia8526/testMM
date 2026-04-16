@@ -137,6 +137,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // we signal "No new base formed"
     const pivotPrice = foundBase && ma50Extension < 40 ? stabilizedPivot : 0;
     const distFromPivot = pivotPrice > 0 ? ((currentPrice - pivotPrice) / pivotPrice) * 100 : 0;
+    const buyZoneMax = pivotPrice * 1.05;
+    const priceGap = pivotPrice > 0 ? pivotPrice - currentPrice : 0;
 
     // 52-week data
     const lastYearData = data.slice(-252);
@@ -168,6 +170,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ma200,
       ma50Extension: ma50Extension.toFixed(2),
       pivotPrice,
+      buyZoneMax,
+      priceGap,
       distFromPivot: distFromPivot.toFixed(2),
       high52w,
       low52w,

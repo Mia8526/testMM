@@ -45,6 +45,8 @@ interface StockData {
   ma200: number;
   ma50Extension: string;
   pivotPrice: number;
+  buyZoneMax: number;
+  priceGap: number;
   distFromPivot: string;
   high52w: number;
   low52w: number;
@@ -71,6 +73,7 @@ interface WatchlistItem {
   shortName: string;
   price: number;
   currency: string;
+  pivotPrice: number;
   ma50Extension: string;
   extensionText: string;
   failedConditions: string[];
@@ -117,6 +120,7 @@ export default function App() {
       shortName: data.shortName,
       price: data.currentPrice,
       currency: data.currency,
+      pivotPrice: data.pivotPrice,
       ma50Extension: data.ma50Extension,
       extensionText: getExtensionAlert(parseFloat(data.ma50Extension)).text,
       failedConditions: failed
@@ -145,12 +149,13 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破目標價", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
+      item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
       `${item.ma50Extension}%`,
       item.extensionText,
       item.failedConditions.join('; ')
@@ -363,6 +368,7 @@ export default function App() {
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">待滿足條件</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
@@ -377,6 +383,9 @@ export default function App() {
                             <div className="text-xs text-slate-400">{item.symbol}</div>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
+                          <td className="px-6 py-4 text-sm font-bold text-slate-900">
+                            {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
+                          </td>
                           <td className="px-6 py-4">
                             <div className={cn("text-sm font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
                               {item.ma50Extension}%
@@ -538,13 +547,47 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Pivot Point Card */}
-                    <div className="sleek-card flex flex-col">
-                      <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">樞紐點與區間</span>
+                    {/* Pivot Point Card (Price Radar) */}
+                    <div className={cn(
+                      "sleek-card flex flex-col transition-all duration-500",
+                      data.pivotPrice > 0 && Math.abs(parseFloat(data.distFromPivot)) < 2 && "bg-amber-50/50 animate-pulse border-amber-200"
+                    )}>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">價格雷達 (Price Radar)</span>
+                        {data.pivotPrice > 0 && Math.abs(parseFloat(data.distFromPivot)) < 2 && (
+                          <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">準備突破！</span>
+                        )}
+                      </div>
+                      
                       <div className="space-y-3 flex-1">
-                        <IndicatorRow label="樞紐價格" value={data.pivotPrice > 0 ? `${data.currency} ${data.pivotPrice.toFixed(2)}` : "尚未形成平台"} />
-                        <IndicatorRow label="距離樞紐" value={data.pivotPrice > 0 ? `${data.distFromPivot}%` : "-"} />
+                        <div className="flex flex-col gap-1 pb-2 border-bottom border-[#f1f5f9]">
+                          <span className="text-[13px] text-[#475569] font-medium">突破目標價</span>
+                          <span className="text-[24px] font-black text-[#0f172a]">
+                            {data.pivotPrice > 0 ? `${data.currency} ${data.pivotPrice.toFixed(2)}` : "尚未形成平台"}
+                          </span>
+                        </div>
+
+                        <IndicatorRow 
+                          label="價格差距" 
+                          value={data.pivotPrice > 0 ? (
+                            <span className={parseFloat(data.distFromPivot) > 0 ? "text-emerald-600" : "text-rose-600"}>
+                              {data.distFromPivot}% ({parseFloat(data.distFromPivot) > 0 ? "+" : ""}{data.currency}{data.priceGap.toFixed(2)})
+                            </span>
+                          ) : "-"} 
+                        />
                         
+                        {data.pivotPrice > 0 && (
+                          <div className="pt-2">
+                            <span className="text-[11px] text-[#64748b] font-bold uppercase">最佳買入區間 (Buy Zone)</span>
+                            <div className="text-[14px] font-bold text-emerald-600 mt-1">
+                              {data.currency}{data.pivotPrice.toFixed(2)} ~ {data.currency}{data.buyZoneMax.toFixed(2)}
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                              * 樞紐價至追價上限 5% 區間
+                            </p>
+                          </div>
+                        )}
+
                         <div className="pt-2">
                           <span className="text-[10px] text-[#64748b] font-bold uppercase">52 週股價位置</span>
                           <div className="h-2 bg-[#e2e8f0] rounded-full mt-2 relative overflow-hidden">
@@ -641,6 +684,7 @@ export default function App() {
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">待滿足條件</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
@@ -655,6 +699,9 @@ export default function App() {
                                   <div className="text-xs text-slate-400">{item.symbol}</div>
                                 </td>
                                 <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
+                                <td className="px-6 py-4 text-sm font-bold text-slate-900">
+                                  {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
+                                </td>
                                 <td className="px-6 py-4">
                                   <div className={cn("text-sm font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
                                     {item.ma50Extension}%
@@ -711,7 +758,7 @@ export default function App() {
   );
 }
 
-function IndicatorRow({ label, value }: { label: string; value: string }) {
+function IndicatorRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between items-center pb-2 border-bottom border-[#f1f5f9]">
       <span className="text-[14px] text-[#475569] font-medium">{label}</span>
