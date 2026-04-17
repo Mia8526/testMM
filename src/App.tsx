@@ -47,6 +47,7 @@ interface StockData {
   extensionFrom50MA: string;
   isVolumeContracted: boolean;
   localPivot: number;
+  isLocalPivotExtended: boolean;
   vcpStatus: string;
   pivotPrice: number;
   buyZoneMax: number;
@@ -253,7 +254,7 @@ export default function App() {
       bg: "bg-amber-50 border-amber-100" 
     };
     return { 
-      text: "🚨 高度過熱，請勿追價", 
+      text: "🚨 過熱勿追", 
       color: "text-rose-700", 
       bg: "bg-rose-50 border-rose-100 animate-pulse" 
     };
@@ -529,11 +530,11 @@ export default function App() {
                           className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors mr-2"
                         >
                           <BookmarkPlus className="w-4 h-4" />
-                          ➕ 存入觀察日誌
+                          觀察
                         </button>
                         {parseFloat(data.ma50Extension) > 25 && (
                           <div className="px-3 py-1 bg-rose-50 text-rose-600 text-[12px] font-bold rounded-full border border-rose-100">
-                            🚨 高度過熱，請勿追價
+                            🚨 過熱勿追
                           </div>
                         )}
                         <div className={cn(
@@ -541,7 +542,7 @@ export default function App() {
                           data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
                         )}>
                           {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                          {data.isTemplateMet ? '符合趨勢模板 ✓' : '未完全符合'}
+                          {data.isTemplateMet ? '符合趨勢 ✓' : '未完全符合'}
                         </div>
                       </div>
                       <div className="text-3xl font-bold text-[#0f172a]">
@@ -604,11 +605,16 @@ export default function App() {
                             "text-sm font-black",
                             data.vcpStatus.includes("突破") ? "text-rose-600" : "text-blue-700"
                           )}>
-                            {data.vcpStatus} {data.vcpStatus === "整理中" && data.isVolumeContracted && "(震盪收斂中)"}
+                            {data.vcpStatus === "整理中" && data.isVolumeContracted ? "整理收斂中" : data.vcpStatus}
                           </p>
+                          {data.isLocalPivotExtended && (
+                            <p className="text-[10px] text-red-600 font-bold mt-1 flex items-center gap-1">
+                              <span>⚠️</span> 過度伸展，等下次基地形成
+                            </p>
+                          )}
                         </div>
                         <div>
-                          <p className="text-sm text-slate-500">突破目標價</p>
+                          <p className="text-sm text-slate-500">52W 高點壓力</p>
                           <p className="text-3xl font-black text-blue-600">{data.currency} {data.pivotPrice.toFixed(2)}</p>
                         </div>
                         <div className="flex justify-between items-center">
@@ -624,11 +630,11 @@ export default function App() {
                             <p className="text-[10px] text-emerald-600 font-bold mt-1">🚀 買入區間</p>
                           )}
                           {data.currentPrice > data.buyZoneMax && (
-                            <p className="text-[10px] text-rose-500 font-bold mt-1">⚠️ 目前已過度伸展 (Extended)，不建議進場，請等待下一個基地形成。</p>
+                            <p className="text-[10px] text-rose-500 font-bold mt-1">⚠️ 過度伸展，等下次基地形成</p>
                           )}
                         </div>
                         <div className="p-3 border-l-4 border-red-500 bg-red-50">
-                          <p className="text-xs text-red-600 font-bold">參考停損點 (-8%)</p>
+                          <p className="text-xs text-red-600 font-bold">參考停損 (-8%)</p>
                           <p className="text-sm font-mono font-bold text-red-700">{data.currency} {data.suggestedStopLoss.toFixed(2)}</p>
                         </div>
 
@@ -672,7 +678,8 @@ export default function App() {
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-amber-500"></span> MA50</div>
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-emerald-500"></span> MA150</div>
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-rose-500"></span> MA200</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-slate-400"></span> PIVOT</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-slate-400"></span> 52W HIGH</div>
+                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-sky-300"></span> VCP 高點</div>
                       </div>
                     </div>
                     
@@ -692,10 +699,21 @@ export default function App() {
                             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                           />
                           {data.pivotPrice > 0 && (
-                            <ReferenceLine y={data.pivotPrice} stroke="#94a3b8" strokeDasharray="3 3" label={{ position: 'right', value: 'PIVOT', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
+                            <ReferenceLine y={data.pivotPrice} stroke="#94a3b8" strokeDasharray="3 3" label={{ position: 'right', value: '52W HIGH', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
                           )}
                           {data.localPivot > 0 && (
-                            <ReferenceLine y={data.localPivot} stroke="#7dd3fc" strokeDasharray="3 3" label={{ position: 'left', value: 'Local Pivot', fill: '#7dd3fc', fontSize: 9, fontWeight: 'bold' }} />
+                            <ReferenceLine 
+                               y={data.localPivot} 
+                               stroke={data.isLocalPivotExtended ? "#cbd5e1" : "#7dd3fc"} 
+                               strokeDasharray="3 3" 
+                               label={{ 
+                                 position: 'left', 
+                                 value: data.isLocalPivotExtended ? '已過度伸展' : 'VCP 最後緊縮高點', 
+                                 fill: data.isLocalPivotExtended ? "#94a3b8" : '#7dd3fc', 
+                                 fontSize: 9, 
+                                 fontWeight: 'bold' 
+                               }} 
+                             />
                           )}
                           <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
                           <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
@@ -740,9 +758,9 @@ export default function App() {
                                   <div className="font-bold text-slate-900">{item.shortName}</div>
                                   <div className="text-xs text-slate-400">{item.symbol}</div>
                                 </td>
-                                <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
+                                <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price <= 100 ? item.price.toFixed(2) : item.price}</td>
                                 <td className="px-6 py-4 text-sm font-bold text-slate-900">
-                                  {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
+                                  {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice <= 100 ? item.pivotPrice.toFixed(2) : item.pivotPrice.toFixed(2)}` : "-"}
                                 </td>
                                 <td className="px-6 py-4">
                                   <div className={cn("text-sm font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
