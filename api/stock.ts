@@ -158,73 +158,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
     const currentVolume = volumes[volumes.length - 1];
 
-    // 1. New Local Pivot Logic (VCP Tightening Filter)
+    // 1. Static Local Pivot Logic (VCP Tightening Filter)
     let localPivot = 0;
-    // Search backwards in the last 15 days to find the most recent stable tight area (5 days < 5% range)
-    for (let i = data.length - 1; i >= Math.max(0, data.length - 15); i--) {
+    // Search backwards in the last 10 days for a stable tight area (5 days < 5% range)
+    for (let i = data.length - 1; i >= Math.max(0, data.length - 10); i--) {
       if (i < 4) continue;
       const window = data.slice(i - 4, i + 1);
-      const highs = window.map(d => d.high);
-      const lows = window.map(d => d.low);
       const windowCloses = window.map(d => d.close);
-      const windowVolatility = (Math.max(...highs) - Math.min(...lows)) / Math.min(...lows);
+      const windowVolatility = (Math.max(...window.map(d => d.high)) - Math.min(...window.map(d => d.low))) / Math.min(...window.map(d => d.low));
 
       if (windowVolatility < 0.05) {
         localPivot = Math.max(...windowCloses);
-        break; // Stop at the most recent consolidation
+        break;
       }
     }
-
-    const isLocalPivotExtended = localPivot > 0 && currentPrice > localPivot * 1.03;
-
-    // VCP Status
-    let vcpStatus = "整理中";
     
-    // For VCP logic, we use the localPivot as the immediate trigger
-    if (localPivot > 0) {
-      const isNearLocalPivot = currentPrice >= localPivot * 0.98 && currentPrice <= localPivot * 1.02;
-      if (currentPrice > localPivot && currentVolume > vol20) {
-        vcpStatus = "突破 VCP 買點！";
-      } else if (isNearLocalPivot && isVolumeContracted) {
-        vcpStatus = "緊縮：等待突破";
-      }
+    // Fallback: If no strict VCP, use max of last 5 days
+    if (localPivot === 0) {
+      localPivot = Math.max(...data.slice(-5).map(d => d.close));
     }
+
+    const isLocalPivotExtended = currentPrice > localPivot * 1.03;
 
     // Extension from 50MA Calculation
     const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
 
-    // Advanced Pivot Radar Logic (Stable Base & 52-week Pressure)
-    // The user now defines the grey line as 52-week high pressure
+    // Static Anchor Pivot Logic (Searching back 60 days for a stable base)
     const last250Days = data.slice(-250);
-    const high52wClose = Math.max(...last250Days.map(d => d.close));
     const high52w = Math.max(...last250Days.map(d => d.high));
     const low52w = Math.min(...last250Days.map(d => d.low));
 
-    // pivotPrice (Grey dashed line) should represent the 52-week high pressure
-    let pivotPrice = high52wClose;
-    
-    // Fallback: Use the stable base logic for the Radar target if it's more relevant
-    const last60Days = data.slice(-60);
-    let basePivot = 0;
+    let anchorPivot = 0;
+    // Search backwards from current to 60 days ago to find the most recent consolidation base
     for (let i = data.length - 1; i >= Math.max(0, data.length - 60); i--) {
       if (i < 4) continue;
       const window = data.slice(i - 4, i + 1);
       const volatility = (Math.max(...window.map(d => d.high)) - Math.min(...window.map(d => d.low))) / Math.min(...window.map(d => d.low));
       if (volatility < 0.08) {
-        basePivot = Math.max(...window.map(d => d.close));
+        anchorPivot = Math.max(...window.map(d => d.close));
         break;
       }
     }
 
-    // If a recent stable base is found, use it for radar, otherwise use 52w high
-    const radarTarget = basePivot > 0 ? basePivot : pivotPrice;
+    // If no consolidation found in 60 days, fallback to 52-week high close
+    const pivotPrice = anchorPivot > 0 ? anchorPivot : Math.max(...last250Days.map(d => d.close));
     
-    const buyZoneMax = radarTarget * 1.05;
-    const suggestedStopLoss = radarTarget * 0.92;
-    const priceGap = radarTarget - currentPrice;
-    const distFromPivot = ((currentPrice - radarTarget) / radarTarget) * 100;
+    const buyZoneMax = pivotPrice * 1.05;
+    const suggestedStopLoss = pivotPrice * 0.92;
+    const priceGap = pivotPrice - currentPrice;
+    const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
 
-    // Trend Template Logic (Minervini)
+    // Basic VCP status for API consistency
+    let vcpStatus = "整理中";
+    if (currentPrice > localPivot && isVolumeContracted) vcpStatus = "帶量突破";
+    else if (isVolumeContracted) vcpStatus = "量縮盤整";
 
     // Trend Template Logic (Minervini)
     const cond1 = currentPrice > (ma150 || 0) && currentPrice > (ma200 || 0);

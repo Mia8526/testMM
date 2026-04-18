@@ -331,19 +331,58 @@ export default function App() {
           </div>
         )}
 
-        <div className="mt-auto pt-6 border-t border-slate-100">
-          <div className="text-[11px] text-[#94a3b8] space-y-2 leading-relaxed">
-            <p className="font-bold uppercase tracking-tight">趨勢模板標準 (Minervini):</p>
-            <ol className="list-decimal list-inside space-y-1">
-              <li>Price &gt; 150 & 200 MA</li>
-              <li>150 MA &gt; 200 MA</li>
-              <li>200 MA trending up</li>
-              <li>50 MA &gt; 150 & 200 MA</li>
-              <li>Price &gt; 50 MA</li>
-              <li>Price &gt; 52W Low +30%</li>
-              <li>Price within 25% of 52W High</li>
-            </ol>
-          </div>
+        <div className="mt-auto pt-6 border-t border-slate-100 overflow-y-auto">
+          {data ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[12px] font-bold text-[#64748b] uppercase tracking-wider">趨勢模板檢查 (Minervini)</h2>
+                <div className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold",
+                  data.isTemplateMet ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
+                )}>
+                  {data.isTemplateMet ? "符合" : "待達標"}
+                </div>
+              </div>
+              <div className="space-y-2">
+                {Object.entries(data.conditions).map(([key, met]) => {
+                  const labels: Record<string, string> = {
+                    priceAboveMAs: "價格 > 150/200MA",
+                    ma150Above200: "150MA > 200MA",
+                    ma200Trending: "200MA 向上趨勢",
+                    ma50AboveOthers: "50MA > 150/200MA",
+                    priceAbove50MA: "價格 > 50MA",
+                    aboveLow30: "距離 52W 低點 > 30%",
+                    nearHigh25: "距離 52W 高點 < 25%"
+                  };
+                  return (
+                    <div key={key} className="flex items-center justify-between text-[11px]">
+                      <span className={cn("font-medium", met ? "text-slate-600" : "text-slate-400")}>
+                        {labels[key] || key}
+                      </span>
+                      {met ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                      ) : (
+                        <XCircle className="w-3 h-3 text-rose-300" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-[#94a3b8] space-y-2 leading-relaxed">
+              <p className="font-bold uppercase tracking-tight">趨勢模板標準 (Minervini):</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Price &gt; 150 & 200 MA</li>
+                <li>150 MA &gt; 200 MA</li>
+                <li>200 MA trending up</li>
+                <li>50 MA &gt; 150 & 200 MA</li>
+                <li>Price &gt; 50 MA</li>
+                <li>Price &gt; 52W Low +30%</li>
+                <li>Price within 25% of 52W High</li>
+              </ol>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -526,33 +565,26 @@ export default function App() {
                         <span className="text-sm text-amber-600 font-medium">{data.fundamentalStatus}</span>
                       </div>
                     </div>
-                    <div className="text-right space-y-2">
-                      <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={addToWatchlist}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors mr-2"
-                        >
-                          <BookmarkPlus className="w-4 h-4" />
-                          觀察
-                        </button>
-                        {parseFloat(data.ma50Extension) > 25 && (
-                          <div className="px-3 py-1 bg-rose-50 text-rose-600 text-[12px] font-bold rounded-full border border-rose-100">
-                            🚨 過熱勿追
-                          </div>
-                        )}
-                        <div className={cn(
-                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold",
-                          data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
-                        )}>
-                          {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                          {data.isTemplateMet ? '✅ 強勢' : '❌ 趨勢未達標'}
+                      <div className="text-right space-y-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={addToWatchlist}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors mr-2"
+                          >
+                            <BookmarkPlus className="w-4 h-4" />
+                            觀察
+                          </button>
+                          {parseFloat(data.ma50Extension) > 25 && (
+                            <div className="px-3 py-1 bg-rose-50 text-rose-600 text-[12px] font-bold rounded-full border border-rose-100">
+                              🚨 過熱
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-3xl font-bold text-[#0f172a]">
+                          <span className="text-xs text-slate-400 font-medium block mb-1">昨日收盤價 (Last Close)</span>
+                          {data.currency} {data.currentPrice.toFixed(2)}
                         </div>
                       </div>
-                      <div className="text-3xl font-bold text-[#0f172a]">
-                        <span className="text-xs text-slate-400 font-medium block mb-1">昨日收盤價 (Last Close)</span>
-                        {data.currency} {data.currentPrice.toFixed(2)}
-                      </div>
-                    </div>
                   </div>
 
                   {/* Grid Layout - 3 Columns */}
@@ -590,75 +622,28 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* 樞紐雷達 - 三行核心資訊 */}
+                    {/* 樞紐雷達 - 三行核心資訊 (Static Anchor) */}
                     <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 lg:col-span-2 shadow-sm">
                       <h3 className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider mb-6">🎯 樞紐雷達核心資訊</h3>
-                      <div className="space-y-6 sm:space-y-8 max-w-md mx-auto">
+                      <div className="space-y-5 sm:space-y-6 max-w-lg mx-auto">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
                           <span className="text-sm text-slate-500 font-medium whitespace-nowrap">突破目標價</span>
-                          <span className="text-xl sm:text-2xl font-black text-blue-600">
-                            {data.currency} {data.pivotPrice.toFixed(2)}
+                          <span className="text-lg sm:text-xl font-black text-blue-600">
+                            NT$ {data.pivotPrice.toFixed(2)}
                           </span>
                         </div>
-                        <div className="py-4 sm:py-6 border-y border-slate-50 flex items-center justify-center">
-                           {data.currentPrice >= data.pivotPrice && data.currentPrice <= data.buyZoneMax ? (
-                             <span className="text-lg sm:text-xl font-black text-emerald-600 flex items-center gap-2 text-center">🟢 位於進場區間</span>
-                           ) : data.currentPrice > data.buyZoneMax ? (
-                             <span className="text-lg sm:text-xl font-black text-rose-500 flex items-center gap-2 text-center">🔴 已過度伸展，請勿追高</span>
-                           ) : (
-                             <span className="text-lg sm:text-xl font-black text-blue-700 flex items-center gap-2 text-center">
-                               {data.vcpStatus === "整理中" && data.isVolumeContracted ? "🟡 整理收斂中" : `⚪ ${data.vcpStatus}`}
-                             </span>
-                           )}
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0 py-4 border-y border-slate-50">
+                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">最佳進場區 (Pivot ~ +5%)</span>
+                          <span className="text-lg sm:text-xl font-black text-emerald-600">
+                            NT$ {data.pivotPrice.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05).toFixed(2)}
+                          </span>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
-                           <span className="text-sm text-slate-500 font-bold whitespace-nowrap">停損參考點</span>
-                           <span className="text-xl sm:text-2xl font-black text-red-700">{data.currency} {data.suggestedStopLoss.toFixed(2)}</span>
+                           <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損 (-8%)</span>
+                           <span className="text-lg sm:text-xl font-black text-red-700">NT$ {(data.pivotPrice * 0.92).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                  {/* 趨勢模板檢查 (Trend Template) - 動態過濾邏輯 */}
-                  <div className="sleek-card">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">趨勢模板檢查 (Trend Template)</span>
-                      <div className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-bold",
-                        data.isTemplateMet ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-                      )}>
-                        {data.isTemplateMet ? "✅ 趨勢確認" : "❌ 趨勢未達標"}
-                      </div>
-                    </div>
-                    
-                    {data.isTemplateMet ? (
-                      <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed border-emerald-100 rounded-xl bg-emerald-50/30">
-                        <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-3" />
-                        <p className="text-emerald-700 font-black text-lg">符合 Minervini 第二階段強勢趨勢</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {Object.entries(data.conditions)
-                          .filter(([_, met]) => !met)
-                          .map(([key, _]) => {
-                            const translations: Record<string, string> = {
-                              priceAboveMAs: "股價未在 150/200 日均線之上",
-                              ma150Above200: "150 日均線低於 200 日均線",
-                              ma200Trending: "200 日均線尚未呈現上升趨勢",
-                              ma50AboveOthers: "短期均線 (50MA) 未站上長期均線 (150/200MA)",
-                              priceAbove50MA: "股價目前低於 50 日均線",
-                              aboveLow30: "漲幅距離 52 週最低點不足 30%",
-                              nearHigh25: "距離 52 週高點過遠 (大於 25%)"
-                            };
-                            return (
-                              <div key={key} className="flex items-center gap-3 p-3 bg-rose-50 border border-rose-100 rounded-lg text-rose-700">
-                                <XCircle className="w-4 h-4 shrink-0" />
-                                <span className="text-sm font-bold">⚠️ {translations[key] || key}</span>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
                   </div>
 
                   {/* Chart Card */}
@@ -695,12 +680,12 @@ export default function App() {
                           {data.pivotPrice > 0 && (
                             <ReferenceLine 
                               y={data.pivotPrice} 
-                              stroke="#94a3b8" 
+                              stroke="#f43f5e" 
                               strokeDasharray="3 3" 
                               label={{ 
                                 position: 'insideRight', 
-                                value: `52W HIGH (${data.pivotPrice.toFixed(2)})`, 
-                                fill: '#64748b', 
+                                value: `突破點 (${data.pivotPrice.toFixed(2)})`, 
+                                fill: '#f43f5e', 
                                 fontSize: 9, 
                                 fontWeight: 'bold' 
                               }} 
@@ -709,12 +694,12 @@ export default function App() {
                           {data.localPivot > 0 && (
                             <ReferenceLine 
                                y={data.localPivot} 
-                               stroke={data.isLocalPivotExtended ? "#cbd5e1" : "#7dd3fc"} 
+                               stroke="#7dd3fc" 
                                strokeDasharray="3 3" 
                                label={{ 
                                  position: 'insideLeft', 
-                                 value: data.isLocalPivotExtended ? `已伸展 (${data.localPivot.toFixed(2)})` : `VCP 高點 (${data.localPivot.toFixed(2)})`, 
-                                 fill: data.isLocalPivotExtended ? "#94a3b8" : '#0ea5e9', 
+                                 value: `VCP 高點 (${data.localPivot.toFixed(2)})`, 
+                                 fill: '#0ea5e9', 
                                  fontSize: 9, 
                                  fontWeight: 'bold' 
                                }} 
