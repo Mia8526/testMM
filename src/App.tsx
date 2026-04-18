@@ -201,6 +201,9 @@ export default function App() {
         try {
           const json = JSON.parse(text);
           errorMessage = json.error || errorMessage;
+          if (json.details) {
+            errorMessage += `\n詳情: ${json.details}`;
+          }
         } catch (e) {
           errorMessage = `伺服器錯誤 (${response.status}): ${text.substring(0, 50)}...`;
         }
@@ -254,7 +257,7 @@ export default function App() {
       bg: "bg-amber-50 border-amber-100" 
     };
     return { 
-      text: "🚨 過熱勿追", 
+      text: "🚨 過熱", 
       color: "text-rose-700", 
       bg: "bg-rose-50 border-rose-100 animate-pulse" 
     };
@@ -491,7 +494,7 @@ export default function App() {
                   className="max-w-md mx-auto p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-700"
                 >
                   <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                  <p className="text-sm font-medium">{error}</p>
+                  <p className="text-sm font-medium whitespace-pre-wrap">{error}</p>
                 </motion.div>
               )}
 
@@ -538,11 +541,11 @@ export default function App() {
                           </div>
                         )}
                         <div className={cn(
-                          "inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[14px] font-bold",
+                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold",
                           data.isTemplateMet ? "bg-[#dcfce7] text-[#15803d]" : "bg-slate-100 text-slate-500"
                         )}>
                           {data.isTemplateMet ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                          {data.isTemplateMet ? '符合趨勢 ✓' : '未完全符合'}
+                          {data.isTemplateMet ? '✅ 強勢' : '❌ 趨勢未達標'}
                         </div>
                       </div>
                       <div className="text-3xl font-bold text-[#0f172a]">
@@ -565,9 +568,9 @@ export default function App() {
                         )}
                       </div>
                       <div className="space-y-3">
-                        <IndicatorRow label="50 MA" value={`${data.currency} ${data.ma50?.toFixed(1) || '-'}`} />
-                        <IndicatorRow label="150 MA" value={`${data.currency} ${data.ma150?.toFixed(1) || '-'}`} />
-                        <IndicatorRow label="200 MA" value={`${data.currency} ${data.ma200?.toFixed(1) || '-'}`} />
+                        <IndicatorRow label="50 MA" value={`${data.currency} ${data.ma50?.toFixed(2) || '-'}`} />
+                        <IndicatorRow label="150 MA" value={`${data.currency} ${data.ma150?.toFixed(2) || '-'}`} />
+                        <IndicatorRow label="200 MA" value={`${data.currency} ${data.ma200?.toFixed(2) || '-'}`} />
                         <div className="pt-3 border-t border-slate-50">
                           <div className="flex justify-between items-center">
                             <span className="text-[13px] text-[#64748b] font-medium">50MA 乖離率</span>
@@ -587,86 +590,75 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* 升級後的樞紐雷達區塊 */}
-                    <div className={cn(
-                      "bg-white p-6 rounded-xl border border-slate-200 transition-all duration-500",
-                      (data.pivotPrice > 0 && Math.abs(parseFloat(data.distanceFromPivot)) < 2) || data.vcpStatus.includes("突破") ? "bg-amber-50/50 animate-pulse border-amber-200" : ""
-                    )}>
-                      <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                        🎯 預計樞紐雷達
-                        {data.pivotPrice > 0 && Math.abs(parseFloat(data.distanceFromPivot)) < 2 && (
-                          <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full animate-none">準備突破！</span>
-                        )}
-                      </h3>
-                      <div className="space-y-4">
-                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                          <p className="text-xs text-blue-600 font-bold mb-1">目前狀態</p>
-                          <p className={cn(
-                            "text-sm font-black",
-                            data.vcpStatus.includes("突破") ? "text-rose-600" : "text-blue-700"
-                          )}>
-                            {data.vcpStatus === "整理中" && data.isVolumeContracted ? "整理收斂中" : data.vcpStatus}
-                          </p>
-                          {data.isLocalPivotExtended && (
-                            <p className="text-[10px] text-red-600 font-bold mt-1 flex items-center gap-1">
-                              <span>⚠️</span> 過度伸展，等下次基地形成
-                            </p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-500">52W 高點壓力</p>
-                          <p className="text-3xl font-black text-blue-600">{data.currency} {data.pivotPrice.toFixed(2)}</p>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium">距離突破點</span>
-                          <span className={cn("text-sm font-bold", data.priceGap > 0 ? "text-orange-500" : "text-green-600")}>
-                            {data.distanceFromPivot}% (還差 {data.currency}{Math.abs(data.priceGap).toFixed(1)})
+                    {/* 樞紐雷達 - 三行核心資訊 */}
+                    <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 lg:col-span-2 shadow-sm">
+                      <h3 className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider mb-6">🎯 樞紐雷達核心資訊</h3>
+                      <div className="space-y-6 sm:space-y-8 max-w-md mx-auto">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
+                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">突破目標價</span>
+                          <span className="text-xl sm:text-2xl font-black text-blue-600">
+                            {data.currency} {data.pivotPrice.toFixed(2)}
                           </span>
                         </div>
-                        <div className="p-3 bg-slate-50 rounded-lg">
-                          <p className="text-xs text-slate-500 mb-1">最佳進場區 (Pivot ~ +5%)</p>
-                          <p className="text-sm font-mono font-bold">{data.pivotPrice.toFixed(2)} ~ {data.buyZoneMax.toFixed(2)}</p>
-                          {data.currentPrice >= data.pivotPrice && data.currentPrice <= data.buyZoneMax && (
-                            <p className="text-[10px] text-emerald-600 font-bold mt-1">🚀 買入區間</p>
-                          )}
-                          {data.currentPrice > data.buyZoneMax && (
-                            <p className="text-[10px] text-rose-500 font-bold mt-1">⚠️ 過度伸展，等下次基地形成</p>
-                          )}
+                        <div className="py-4 sm:py-6 border-y border-slate-50 flex items-center justify-center">
+                           {data.currentPrice >= data.pivotPrice && data.currentPrice <= data.buyZoneMax ? (
+                             <span className="text-lg sm:text-xl font-black text-emerald-600 flex items-center gap-2 text-center">🟢 位於進場區間</span>
+                           ) : data.currentPrice > data.buyZoneMax ? (
+                             <span className="text-lg sm:text-xl font-black text-rose-500 flex items-center gap-2 text-center">🔴 已過度伸展，請勿追高</span>
+                           ) : (
+                             <span className="text-lg sm:text-xl font-black text-blue-700 flex items-center gap-2 text-center">
+                               {data.vcpStatus === "整理中" && data.isVolumeContracted ? "🟡 整理收斂中" : `⚪ ${data.vcpStatus}`}
+                             </span>
+                           )}
                         </div>
-                        <div className="p-3 border-l-4 border-red-500 bg-red-50">
-                          <p className="text-xs text-red-600 font-bold">參考停損 (-8%)</p>
-                          <p className="text-sm font-mono font-bold text-red-700">{data.currency} {data.suggestedStopLoss.toFixed(2)}</p>
-                        </div>
-
-                        <div className="pt-2">
-                          <span className="text-[10px] text-[#64748b] font-bold uppercase">52 週股價位置</span>
-                          <div className="h-2 bg-[#e2e8f0] rounded-full mt-2 relative overflow-hidden">
-                            <div 
-                              className={cn("absolute h-full rounded-full transition-all duration-500", getRangeBarColor(data.currentPrice, data.low52w, data.high52w))}
-                              style={{ width: `${Math.min(100, Math.max(0, ((data.currentPrice - data.low52w) / (data.high52w - data.low52w)) * 100))}%` }}
-                            />
-                          </div>
-                          <div className="flex justify-between text-[10px] text-[#94a3b8] mt-1 font-medium">
-                            <span>Low</span>
-                            <span>High</span>
-                          </div>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
+                           <span className="text-sm text-slate-500 font-bold whitespace-nowrap">停損參考點</span>
+                           <span className="text-xl sm:text-2xl font-black text-red-700">{data.currency} {data.suggestedStopLoss.toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Checklist Card - Nine Grid Style */}
-                    <div className="sleek-card">
-                      <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider block mb-4">趨勢模板檢查 (Minervini)</span>
-                      <div className="grid grid-cols-1 gap-2">
-                        <CheckItem label="價格 > 150MA & 200MA" met={data.conditions.priceAboveMAs} />
-                        <CheckItem label="150MA > 200MA" met={data.conditions.ma150Above200} />
-                        <CheckItem label="200MA 向上趨勢 (1月)" met={data.conditions.ma200Trending} />
-                        <CheckItem label="50MA > 150MA & 200MA" met={data.conditions.ma50AboveOthers} />
-                        <CheckItem label="價格 > 50MA" met={data.conditions.priceAbove50MA} />
-                        <CheckItem label="高於 52W 低點 > 30%" met={data.conditions.aboveLow30} />
-                        <CheckItem label="距離 52W 高點 < 25%" met={data.conditions.nearHigh25} />
+                  {/* 趨勢模板檢查 (Trend Template) - 動態過濾邏輯 */}
+                  <div className="sleek-card">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">趨勢模板檢查 (Trend Template)</span>
+                      <div className={cn(
+                        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-bold",
+                        data.isTemplateMet ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                      )}>
+                        {data.isTemplateMet ? "✅ 趨勢確認" : "❌ 趨勢未達標"}
                       </div>
                     </div>
+                    
+                    {data.isTemplateMet ? (
+                      <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed border-emerald-100 rounded-xl bg-emerald-50/30">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-3" />
+                        <p className="text-emerald-700 font-black text-lg">符合 Minervini 第二階段強勢趨勢</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {Object.entries(data.conditions)
+                          .filter(([_, met]) => !met)
+                          .map(([key, _]) => {
+                            const translations: Record<string, string> = {
+                              priceAboveMAs: "股價未在 150/200 日均線之上",
+                              ma150Above200: "150 日均線低於 200 日均線",
+                              ma200Trending: "200 日均線尚未呈現上升趨勢",
+                              ma50AboveOthers: "短期均線 (50MA) 未站上長期均線 (150/200MA)",
+                              priceAbove50MA: "股價目前低於 50 日均線",
+                              aboveLow30: "漲幅距離 52 週最低點不足 30%",
+                              nearHigh25: "距離 52 週高點過遠 (大於 25%)"
+                            };
+                            return (
+                              <div key={key} className="flex items-center gap-3 p-3 bg-rose-50 border border-rose-100 rounded-lg text-rose-700">
+                                <XCircle className="w-4 h-4 shrink-0" />
+                                <span className="text-sm font-bold">⚠️ {translations[key] || key}</span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Chart Card */}
@@ -694,12 +686,25 @@ export default function App() {
                             tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
                             axisLine={false}
                             tickLine={false}
+                            tickFormatter={(tick) => typeof tick === 'number' ? tick.toFixed(2) : tick}
                           />
                           <Tooltip 
                             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+                            formatter={(value: any) => typeof value === 'number' ? value.toFixed(2) : value}
                           />
                           {data.pivotPrice > 0 && (
-                            <ReferenceLine y={data.pivotPrice} stroke="#94a3b8" strokeDasharray="3 3" label={{ position: 'right', value: '52W HIGH', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
+                            <ReferenceLine 
+                              y={data.pivotPrice} 
+                              stroke="#94a3b8" 
+                              strokeDasharray="3 3" 
+                              label={{ 
+                                position: 'insideRight', 
+                                value: `52W HIGH (${data.pivotPrice.toFixed(2)})`, 
+                                fill: '#64748b', 
+                                fontSize: 9, 
+                                fontWeight: 'bold' 
+                              }} 
+                            />
                           )}
                           {data.localPivot > 0 && (
                             <ReferenceLine 
@@ -707,9 +712,9 @@ export default function App() {
                                stroke={data.isLocalPivotExtended ? "#cbd5e1" : "#7dd3fc"} 
                                strokeDasharray="3 3" 
                                label={{ 
-                                 position: 'left', 
-                                 value: data.isLocalPivotExtended ? '已過度伸展' : 'VCP 最後緊縮高點', 
-                                 fill: data.isLocalPivotExtended ? "#94a3b8" : '#7dd3fc', 
+                                 position: 'insideLeft', 
+                                 value: data.isLocalPivotExtended ? `已伸展 (${data.localPivot.toFixed(2)})` : `VCP 高點 (${data.localPivot.toFixed(2)})`, 
+                                 fill: data.isLocalPivotExtended ? "#94a3b8" : '#0ea5e9', 
                                  fontSize: 9, 
                                  fontWeight: 'bold' 
                                }} 

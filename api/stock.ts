@@ -1,6 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import YahooFinance from 'yahoo-finance2';
-const yahooFinance = new YahooFinance();
+import yf from 'yahoo-finance2';
+
+function getYahooFinance() {
+  let mod: any = yf;
+  if (mod.default) mod = mod.default;
+  if (typeof mod === 'function') return new mod();
+  return mod;
+}
+const yahooFinance = getYahooFinance();
 import { subDays, format } from 'date-fns';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -37,36 +44,76 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const endDate = new Date();
         const startDate = subDays(endDate, 550);
         const queryOptions = {
-          period1: startDate,
-          period2: endDate,
+          period1: format(startDate, 'yyyy-MM-dd'),
+          period2: format(endDate, 'yyyy-MM-dd'),
           interval: '1d' as const,
         };
-        const historical = await yahooFinance.historical(sym, queryOptions);
+        const historical: any = await yahooFinance.historical(sym, queryOptions);
         const quote = await yahooFinance.quote(sym);
         return { historical, quote };
-      } catch (e) {
+      } catch (e: any) {
+        return { error: e.message || String(e) };
+      }
+    };
+
+    let fetchResult: any = null;
+    let lastError = '';
+
+    const tryFetch = async (sym: string) => {
+      try {
+        const res = await fetchData(sym);
+        if (res && !('error' in res)) return res;
+        if (res && 'error' in res) lastError = res.error;
+        
+        // Fallback to chart if historical fails
+        const chartData = await yahooFinance.chart(sym, {
+          period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
+          period2: format(new Date(), 'yyyy-MM-dd'),
+          interval: '1d'
+        });
+        
+        if (chartData && chartData.quotes && chartData.quotes.length > 0) {
+          const quote = await yahooFinance.quote(sym);
+          const historical = chartData.quotes.map((q: any) => ({
+            date: q.date,
+            open: q.open,
+            high: q.high,
+            low: q.low,
+            close: q.close,
+            volume: q.volume,
+            adjClose: q.adjclose
+          }));
+          return { historical, quote };
+        }
+        
+        return null;
+      } catch (e: any) {
+        lastError = e.message || String(e);
         return null;
       }
     };
 
-    let fetchResult = null;
-
-    if (/^\d+$/.test(symbol)) {
-      // Pure numeric: Taiwan stock logic
-      fetchResult = await fetchData(`${symbol}.TW`);
+    // Detect market and symbol
+    if (/^\d+(\.(TW|TWO))?$/i.test(symbol)) {
+      // Taiwan stock: either pure numeric or has .TW/.TWO
+      const pureCode = symbol.split('.')[0];
+      
+      // Try TW first
+      fetchResult = await tryFetch(`${pureCode}.TW`);
       if (fetchResult) {
-        symbol = `${symbol}.TW`;
+        symbol = `${pureCode}.TW`;
         marketType = '上市';
       } else {
-        fetchResult = await fetchData(`${symbol}.TWO`);
+        // Fallback to TWO
+        fetchResult = await tryFetch(`${pureCode}.TWO`);
         if (fetchResult) {
-          symbol = `${symbol}.TWO`;
+          symbol = `${pureCode}.TWO`;
           marketType = '上櫃';
         }
       }
     } else {
-      // Contains letters: US stock logic
-      fetchResult = await fetchData(symbol);
+      // Non-numeric or other US stock logic
+      fetchResult = await tryFetch(symbol);
       if (fetchResult) {
         marketType = '美股';
         currency = '$';
@@ -74,7 +121,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
-      return res.status(404).json({ error: `找不到股票數據: ${ticker}` });
+      return res.status(404).json({ 
+        error: `找不到股票數據: ${ticker}`,
+        details: lastError
+      });
     }
 
     result = fetchResult.historical;

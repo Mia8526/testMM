@@ -2,14 +2,21 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YahooFinance from 'yahoo-finance2';
-const yahooFinance = new YahooFinance();
+import yf from 'yahoo-finance2';
+
+function getYahooFinance() {
+  let mod: any = yf;
+  if (mod.default) mod = mod.default;
+  if (typeof mod === 'function') return new mod();
+  return mod;
+}
+const yahooFinance = getYahooFinance();
 import { subDays, format } from 'date-fns';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function startServer() {
+async function startServer(): Promise<void> {
   const app = express();
   const PORT = 3000;
 
@@ -23,7 +30,8 @@ async function startServer() {
   // API Route: Fetch stock data and calculate indicators
   app.get('/api/stock', async (req, res) => {
     const ticker = req.query.ticker as string;
-    console.log(`API Request received for ticker: ${ticker}`);
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`[${requestId}] API Request received for ticker: ${ticker}`);
     try {
       if (!ticker) {
         return res.status(400).json({ error: '請提供股票代碼 (ticker)' });
@@ -37,40 +45,83 @@ async function startServer() {
       // Helper to fetch data with fallback
       const fetchData = async (sym: string) => {
         try {
+          console.log(`[${requestId}] Fetching data for: ${sym}`);
           const endDate = new Date();
           const startDate = subDays(endDate, 550);
           const queryOptions = {
-            period1: startDate,
-            period2: endDate,
+            period1: format(startDate, 'yyyy-MM-dd'),
+            period2: format(endDate, 'yyyy-MM-dd'),
             interval: '1d' as const,
           };
-          const historical = await yahooFinance.historical(sym, queryOptions);
+          const historical: any = await yahooFinance.historical(sym, queryOptions);
           const quote = await yahooFinance.quote(sym);
+          console.log(`[${requestId}] Successfully fetched ${sym}. Historical points: ${historical?.length ?? 0}`);
           return { historical, quote };
-        } catch (e) {
-          console.error(`Error fetching ${sym}:`, e);
+        } catch (e: any) {
+          console.error(`[${requestId}] Error fetching ${sym}:`, e.message || e);
+          return { error: e.message || String(e) };
+        }
+      };
+
+      let fetchResult: any = null;
+      let lastError = '';
+
+      const tryFetch = async (sym: string) => {
+        try {
+          const res = await fetchData(sym);
+          if (res && !('error' in res)) return res;
+          if (res && 'error' in res) lastError = res.error;
+          
+          // Fallback to chart if historical fails
+          console.log(`[${requestId}] Attempting chart fallback for ${sym}`);
+          const chartData = await yahooFinance.chart(sym, {
+            period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
+            period2: format(new Date(), 'yyyy-MM-dd'),
+            interval: '1d'
+          });
+          
+          if (chartData && chartData.quotes && chartData.quotes.length > 0) {
+            const quote = await yahooFinance.quote(sym);
+            const historical = chartData.quotes.map((q: any) => ({
+              date: q.date,
+              open: q.open,
+              high: q.high,
+              low: q.low,
+              close: q.close,
+              volume: q.volume,
+              adjClose: q.adjclose
+            }));
+            return { historical, quote };
+          }
+          
+          return null;
+        } catch (e: any) {
+          lastError = e.message || String(e);
           return null;
         }
       };
 
-      let fetchResult = null;
-
-      if (/^\d+$/.test(symbol)) {
-        // Pure numeric: Taiwan stock logic
-        fetchResult = await fetchData(`${symbol}.TW`);
+      // Detect market and symbol
+      if (/^\d+(\.(TW|TWO))?$/i.test(symbol)) {
+        // Taiwan stock: either pure numeric or has .TW/.TWO
+        const pureCode = symbol.split('.')[0];
+        
+        // Try TW first
+        fetchResult = await tryFetch(`${pureCode}.TW`);
         if (fetchResult) {
-          symbol = `${symbol}.TW`;
+          symbol = `${pureCode}.TW`;
           marketType = '上市';
         } else {
-          fetchResult = await fetchData(`${symbol}.TWO`);
+          // Fallback to TWO
+          fetchResult = await tryFetch(`${pureCode}.TWO`);
           if (fetchResult) {
-            symbol = `${symbol}.TWO`;
+            symbol = `${pureCode}.TWO`;
             marketType = '上櫃';
           }
         }
       } else {
-        // Contains letters: US stock logic
-        fetchResult = await fetchData(symbol);
+        // Non-numeric or other US stock logic
+        fetchResult = await tryFetch(symbol);
         if (fetchResult) {
           marketType = '美股';
           currency = '$';
@@ -78,7 +129,10 @@ async function startServer() {
       }
 
       if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
-        return res.status(404).json({ error: `找不到股票數據: ${ticker}` });
+        return res.status(404).json({ 
+          error: `找不到股票數據: ${ticker}`,
+          details: lastError 
+        });
       }
 
       result = fetchResult.historical;
@@ -251,6 +305,19 @@ async function startServer() {
 }
 
 console.log('>>> Starting server...');
-startServer().catch(err => {
+try {
+  await startServer();
+  console.log('>>> Server started. Running Yahoo Finance connectivity test...');
+  const testTicker = 'AAPL';
+  try {
+    await yahooFinance.quoteSummary(testTicker, { modules: ['price'] });
+    console.log(`>>> Connectivity test PASSED for ${testTicker}`);
+  } catch (err: any) {
+    console.error(`>>> Connectivity test FAILED for ${testTicker}:`, err.message);
+    if (err.message.includes('404')) {
+      console.warn('>>> Received 404. This might be a false positive if AAPL is not reachable, but check your network.');
+    }
+  }
+} catch (err) {
   console.error('>>> Server failed to start:', err);
-});
+}
