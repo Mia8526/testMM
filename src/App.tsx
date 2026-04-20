@@ -581,7 +581,7 @@ export default function App() {
                           )}
                         </div>
                         <div className="text-3xl font-bold text-[#0f172a]">
-                          <span className="text-xs text-slate-400 font-medium block mb-1">昨日收盤價 (Last Close)</span>
+                          <span className="text-xs text-slate-400 font-medium block mb-1">收盤價 (Last Close)</span>
                           {data.currency} {data.currentPrice.toFixed(2)}
                         </div>
                       </div>

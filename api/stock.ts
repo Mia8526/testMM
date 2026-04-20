@@ -134,7 +134,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const data = result.filter((d: any) => d.close !== null).sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
     
     const closes = data.map(d => d.close);
-    const currentPrice = closes[closes.length - 1];
+    
+    // Use the latest quote price if available, otherwise fallback to the last historical close
+    const latestQuotePrice = fetchResult.quote.regularMarketPrice;
+    const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
+
+    // If we have a newer quote price, ensure it's used for SMA calculations
+    if (latestQuotePrice !== undefined && latestQuotePrice !== null && closes.length > 0) {
+      closes[closes.length - 1] = latestQuotePrice;
+    }
 
     // Helper to calculate Simple Moving Average
     const calculateSMA = (prices: number[], period: number) => {

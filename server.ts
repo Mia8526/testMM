@@ -142,7 +142,16 @@ async function startServer(): Promise<void> {
       const data = result.filter((d: any) => d.close !== null).sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
       
       const closes = data.map(d => d.close);
-      const currentPrice = closes[closes.length - 1];
+      
+      // Use the latest quote price if available, otherwise fallback to the last historical close
+      const latestQuotePrice = fetchResult.quote.regularMarketPrice;
+      const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
+
+      // If we have a newer quote price, ensure it's used for SMA calculations by updating the last element 
+      // or appending it if it represents a newer timeframe
+      if (latestQuotePrice !== undefined && latestQuotePrice !== null && closes.length > 0) {
+        closes[closes.length - 1] = latestQuotePrice;
+      }
 
       // Helper to calculate Simple Moving Average
       const calculateSMA = (prices: number[], period: number) => {
