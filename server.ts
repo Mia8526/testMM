@@ -55,7 +55,12 @@ async function startServer(): Promise<void> {
             interval: '1d' as const,
           };
           const historical: any = await yahooFinance.historical(sym, queryOptions);
-          const quote = await yahooFinance.quote(sym);
+          let quote = null;
+          try {
+            quote = await yahooFinance.quote(sym);
+          } catch (qe) {
+            console.error(`fetchData: Quote fetch failed for ${sym} but historical is OK`, qe);
+          }
           console.log(`[${requestId}] Successfully fetched ${sym}. Historical points: ${historical?.length ?? 0}`);
           return { historical, quote };
         } catch (e: any) {
@@ -82,7 +87,12 @@ async function startServer(): Promise<void> {
           });
           
           if (chartData && chartData.quotes && chartData.quotes.length > 0) {
-            const quote = await yahooFinance.quote(sym);
+            let quote = null;
+            try {
+              quote = await yahooFinance.quote(sym);
+            } catch (qe) {
+              console.error(`Quote fetch failed for ${sym} but historical data is OK`, qe);
+            }
             const historical = chartData.quotes.map((q: any) => ({
               date: q.date,
               open: q.open,
@@ -141,10 +151,10 @@ async function startServer(): Promise<void> {
       // Name Logic: Taiwan stocks -> Chinese, US stocks -> English
       if (marketType === '上市' || marketType === '上櫃') {
         // For Taiwan stocks, displayName or shortName usually contains the Chinese name
-        shortName = fetchResult.quote.displayName || fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
+        shortName = fetchResult?.quote?.displayName || fetchResult?.quote?.shortName || fetchResult?.quote?.longName || symbol;
       } else {
         // For US stocks, shortName/longName are naturally English
-        shortName = fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
+        shortName = fetchResult?.quote?.shortName || fetchResult?.quote?.longName || symbol;
       }
 
       // Sort by date ascending
@@ -153,7 +163,7 @@ async function startServer(): Promise<void> {
       const closes = data.map(d => d.close);
       
       // Use the latest quote price if available, otherwise fallback to the last historical close
-      const latestQuotePrice = fetchResult.quote.regularMarketPrice;
+      const latestQuotePrice = fetchResult?.quote?.regularMarketPrice;
       const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
 
       // Fundamental Extension: Forward EPS & Growth (Robust Error Handling)
@@ -161,7 +171,8 @@ async function startServer(): Promise<void> {
       let epsGrowth = null;
       
       try {
-        epsForward = fetchResult?.quote?.epsForward ?? null;
+        // Use optional chaining for everything
+        epsForward = fetchResult?.quote?.epsForward ?? fetchResult?.quote?.trailingEps ?? null;
         const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
         
         if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
@@ -169,7 +180,6 @@ async function startServer(): Promise<void> {
         }
       } catch (e) {
         console.error("Error fetching/calculating EPS:", e);
-        // Fallback already handled by initialized null values
       }
 
       // If we have a newer quote price, ensure it's used for SMA calculations by updating the last element 
@@ -295,13 +305,18 @@ async function startServer(): Promise<void> {
         isTemplateMet,
         epsForward,
         epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
-        chartData: data.slice(-200).map(d => ({
-          date: format(d.date, 'yyyy-MM-dd'),
-          price: d.close,
-          ma50: calculateSMA(closes.slice(0, data.indexOf(d) + 1), 50),
-          ma150: calculateSMA(closes.slice(0, data.indexOf(d) + 1), 150),
-          ma200: calculateSMA(closes.slice(0, data.indexOf(d) + 1), 200),
-        }))
+        chartData: data.slice(-200).map((d, i, arr) => {
+          // Calculate MA indices more efficiently
+          const dataIndex = data.length - arr.length + i;
+          const subCloses = closes.slice(0, dataIndex + 1);
+          return {
+            date: format(d.date, 'yyyy-MM-dd'),
+            price: d.close,
+            ma50: calculateSMA(subCloses, 50),
+            ma150: calculateSMA(subCloses, 150),
+            ma200: calculateSMA(subCloses, 200),
+          };
+        })
       });
     } catch (error) {
       console.error('API Error:', error);
