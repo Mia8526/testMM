@@ -1,5 +1,31 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import yf from 'yahoo-finance2';
+import { subDays, format } from 'date-fns';
+
+/**
+ * Utility functions for technical indicators (Inlined for reliability)
+ */
+function calculateSMA(prices: (number | null | undefined)[], period: number): number | null {
+  if (!prices || !Array.isArray(prices) || period <= 0) return null;
+  const validPrices = prices.filter((p): p is number => typeof p === 'number' && !isNaN(p));
+  if (validPrices.length < period) return null;
+  const slice = validPrices.slice(-period);
+  const sum = slice.reduce((a, b) => a + b, 0);
+  return sum / period;
+}
+
+function calculateEMA(prices: (number | null | undefined)[], period: number): number | null {
+  if (!prices || !Array.isArray(prices) || period <= 0) return null;
+  const validPrices = prices.filter((p): p is number => typeof p === 'number' && !isNaN(p));
+  if (validPrices.length < period) return null;
+  const multiplier = 2 / (period + 1);
+  const firstPeriod = validPrices.slice(0, period);
+  let ema = firstPeriod.reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < validPrices.length; i++) {
+    ema = (validPrices[i] - ema) * multiplier + ema;
+  }
+  return ema;
+}
 
 function getYahooFinance() {
   let mod: any = yf;
@@ -8,8 +34,6 @@ function getYahooFinance() {
   return mod;
 }
 const yahooFinance = getYahooFinance();
-import { subDays, format } from 'date-fns';
-import { calculateSMA, calculateEMA } from '../src/lib/indicators.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Set CORS headers for Vercel
