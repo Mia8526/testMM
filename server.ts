@@ -156,13 +156,20 @@ async function startServer(): Promise<void> {
       const latestQuotePrice = fetchResult.quote.regularMarketPrice;
       const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
 
-      // Fundamental Extension: Forward EPS & Growth
-      const epsForward = fetchResult.quote.epsForward || null;
-      const epsCurrentYear = fetchResult.quote.epsCurrentYear || null;
+      // Fundamental Extension: Forward EPS & Growth (Robust Error Handling)
+      let epsForward = null;
       let epsGrowth = null;
       
-      if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
-        epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
+      try {
+        epsForward = fetchResult?.quote?.epsForward ?? null;
+        const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
+        
+        if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
+          epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
+        }
+      } catch (e) {
+        console.error("Error fetching/calculating EPS:", e);
+        // Fallback already handled by initialized null values
       }
 
       // If we have a newer quote price, ensure it's used for SMA calculations by updating the last element 
