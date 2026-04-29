@@ -69,6 +69,8 @@ interface StockData {
   };
   fundamentalStatus: string;
   isTemplateMet: boolean;
+  epsForward: number | null;
+  epsGrowth: string | null;
   chartData: any[];
 }
 
@@ -583,6 +585,25 @@ export default function App() {
                         <div className="text-3xl font-bold text-[#0f172a]">
                           <span className="text-xs text-slate-400 font-medium block mb-1">收盤價 (Last Close)</span>
                           {data.currency} {data.currentPrice.toFixed(2)}
+                          
+                          {/* 明年預估 EPS 與成長率 */}
+                          {data.epsForward !== null && (
+                            <div className="mt-2 flex justify-end">
+                              <span className={cn(
+                                "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm transition-all duration-300",
+                                data.epsGrowth && parseFloat(data.epsGrowth) >= 20 
+                                  ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10" 
+                                  : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
+                              )}>
+                                預估 EPS: ${data.epsForward.toFixed(2)}
+                                {data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
+                                  <span className="ml-1.5 opacity-90">
+                                    (YoY +{data.epsGrowth}%)
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                   </div>

@@ -9,6 +9,7 @@ function getYahooFinance() {
 }
 const yahooFinance = getYahooFinance();
 import { subDays, format } from 'date-fns';
+import { calculateSMA, calculateEMA } from '../src/lib/indicators.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Set CORS headers for Vercel
@@ -128,7 +129,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     result = fetchResult.historical;
-    shortName = fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
+    
+    // Name Logic: Taiwan stocks -> Chinese, US stocks -> English
+    if (marketType === '上市' || marketType === '上櫃') {
+      // For Taiwan stocks, displayName or shortName usually contains the Chinese name
+      shortName = fetchResult.quote.displayName || fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
+    } else {
+      // For US stocks, shortName/longName are naturally English
+      shortName = fetchResult.quote.shortName || fetchResult.quote.longName || symbol;
+    }
 
     // Sort by date ascending
     const data = result.filter((d: any) => d.close !== null).sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
@@ -139,17 +148,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const latestQuotePrice = fetchResult.quote.regularMarketPrice;
     const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
 
+    // Fundamental Extension: Forward EPS & Growth
+    const epsForward = fetchResult.quote.epsForward || null;
+    const epsCurrentYear = fetchResult.quote.epsCurrentYear || null;
+    let epsGrowth = null;
+    
+    if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
+      epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
+    }
+
     // If we have a newer quote price, ensure it's used for SMA calculations
     if (latestQuotePrice !== undefined && latestQuotePrice !== null && closes.length > 0) {
       closes[closes.length - 1] = latestQuotePrice;
     }
-
-    // Helper to calculate Simple Moving Average
-    const calculateSMA = (prices: number[], period: number) => {
-      if (prices.length < period) return null;
-      const slice = prices.slice(-period);
-      return slice.reduce((a, b) => a + b, 0) / period;
-    };
 
     const ma50 = calculateSMA(closes, 50);
     const ma150 = calculateSMA(closes, 150);
@@ -157,12 +168,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Volume Contraction Logic
     const volumes = data.map(d => d.volume || 0);
-    const calculateAvg = (vals: number[], period: number) => {
-      if (vals.length < period) return 0;
-      return vals.slice(-period).reduce((a, b) => a + b, 0) / period;
-    };
-    const vol5 = calculateAvg(volumes, 5);
-    const vol20 = calculateAvg(volumes, 20);
+    const vol5 = calculateSMA(volumes, 5) || 0;
+    const vol20 = calculateSMA(volumes, 20) || 0;
     const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
     const currentVolume = volumes[volumes.length - 1];
 
@@ -270,6 +277,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       fundamentalStatus: "技術面符合，等待財報數據串接",
       isTemplateMet,
+      epsForward,
+      epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
       chartData: data.slice(-200).map(d => ({
         date: format(d.date, 'yyyy-MM-dd'),
         price: d.close,
