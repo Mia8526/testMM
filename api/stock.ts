@@ -51,7 +51,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const ticker = req.query.ticker as string;
+    const ticker = (req.query.ticker as string || '').trim();
+    const requestId = Math.random().toString(36).substring(7);
     
     if (!ticker) {
       return res.status(400).json({ error: '請提供股票代碼 (ticker)' });
@@ -91,11 +92,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const tryFetch = async (sym: string) => {
       try {
+        console.log(`[${requestId}] tryFetch: ${sym}`);
         const res = await fetchData(sym);
-        if (res && !('error' in res)) return res;
-        if (res && 'error' in res) lastError = res.error;
+        if (res && !('error' in res) && res.historical && res.historical.length > 0) return res;
         
-        // Fallback to chart if historical fails
+        if (res && 'error' in res) {
+          lastError = res.error;
+          console.log(`[${requestId}] fetchData error for ${sym}: ${lastError}`);
+        }
+        
+        // Fallback to chart if historical fails or is empty
+        console.log(`[${requestId}] Attempting chart fallback for ${sym}`);
         const chartData = await yahooFinance.chart(sym, {
           period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
           period2: format(new Date(), 'yyyy-MM-dd'),
@@ -107,51 +114,99 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           try {
             quote = await yahooFinance.quote(sym);
           } catch (qe) {
-            console.error(`Quote fetch failed for ${sym} but historical data is OK`, qe);
+            console.error(`Quote fetch failed for ${sym} but chart data is OK`, qe);
           }
-          const historical = chartData.quotes.map((q: any) => ({
-            date: q.date,
-            open: q.open,
-            high: q.high,
-            low: q.low,
-            close: q.close,
-            volume: q.volume,
-            adjClose: q.adjclose
-          }));
-          return { historical, quote };
+          const historical = chartData.quotes
+            .filter((q: any) => q.close !== null && q.close !== undefined)
+            .map((q: any) => ({
+              date: q.date,
+              open: q.open,
+              high: q.high,
+              low: q.low,
+              close: q.close,
+              volume: q.volume,
+              adjClose: q.adjclose
+            }));
+          
+          if (historical.length > 0) {
+            return { historical, quote };
+          }
         }
         
         return null;
       } catch (e: any) {
         lastError = e.message || String(e);
+        console.error(`[${requestId}] tryFetch FATAL error for ${sym}:`, lastError);
         return null;
       }
     };
 
     // Detect market and symbol
-    if (/^\d+(\.(TW|TWO))?$/i.test(symbol)) {
-      // Taiwan stock: either pure numeric or has .TW/.TWO
+    const isTaiwanNumeric = /^\d{4,6}(\.(TW|TWO))?$/i.test(symbol);
+    
+    if (isTaiwanNumeric) {
       const pureCode = symbol.split('.')[0];
+      const preferredSuffix = symbol.includes('.') ? symbol.split('.')[1].toUpperCase() : 'TW';
+      const alternativeSuffix = preferredSuffix === 'TW' ? 'TWO' : 'TW';
       
-      // Try TW first
-      fetchResult = await tryFetch(`${pureCode}.TW`);
-      if (fetchResult) {
-        symbol = `${pureCode}.TW`;
-        marketType = '上市';
+      console.log(`[${requestId}] Detected Taiwan numeric symbol: ${pureCode}. Trying ${preferredSuffix} first.`);
+      fetchResult = await tryFetch(`${pureCode}.${preferredSuffix}`);
+      
+      if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
+        console.log(`[${requestId}] ${preferredSuffix} failed or empty, trying ${alternativeSuffix}.`);
+        fetchResult = await tryFetch(`${pureCode}.${alternativeSuffix}`);
+        if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+          symbol = `${pureCode}.${alternativeSuffix}`;
+          marketType = alternativeSuffix === 'TW' ? '上市' : '上櫃';
+        }
       } else {
-        // Fallback to TWO
-        fetchResult = await tryFetch(`${pureCode}.TWO`);
-        if (fetchResult) {
-          symbol = `${pureCode}.TWO`;
-          marketType = '上櫃';
+        symbol = `${pureCode}.${preferredSuffix}`;
+        marketType = preferredSuffix === 'TW' ? '上市' : '上櫃';
+      }
+
+      // Final attempt: Search if both failed
+      if (!fetchResult) {
+        console.log(`[${requestId}] Both suffixes failed for ${pureCode}. Attempting general search.`);
+        try {
+          const searchResults = await yahooFinance.search(pureCode);
+          const bestMatch = searchResults.quotes.find((q: any) => 
+            q.symbol.startsWith(pureCode) && (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO'))
+          );
+          if (bestMatch) {
+            console.log(`[${requestId}] Search found better symbol: ${bestMatch.symbol}`);
+            fetchResult = await tryFetch(bestMatch.symbol);
+            if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+              symbol = bestMatch.symbol;
+              marketType = symbol.endsWith('.TW') ? '上市' : '上櫃';
+            }
+          }
+        } catch (se) {
+          console.error(`[${requestId}] Search fallback failed:`, se);
         }
       }
     } else {
-      // Non-numeric or other US stock logic
+      // Non-numeric or other market logic (US, HK, etc.)
       fetchResult = await tryFetch(symbol);
-      if (fetchResult) {
-        marketType = '美股';
-        currency = '$';
+      
+      // If direct fetch fails and it looks like it might be a Taiwan stock missing a suffix
+      if ((!fetchResult || !fetchResult.historical) && /^\d+$/.test(symbol)) {
+        console.log(`[${requestId}] Numeric symbol failed as US. Retrying as Taiwan (${symbol}.TW)...`);
+        fetchResult = await tryFetch(`${symbol}.TW`);
+        if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+          symbol = `${symbol}.TW`;
+          marketType = '上市';
+        } else {
+          fetchResult = await tryFetch(`${symbol}.TWO`);
+          if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+            symbol = `${symbol}.TWO`;
+            marketType = '上櫃';
+          }
+        }
+      }
+      
+      if (fetchResult && !marketType) {
+        marketType = symbol.endsWith('.TW') ? '上市' : (symbol.endsWith('.TWO') ? '上櫃' : '美股');
+        if (marketType === '美股') currency = '$';
       }
     }
 
@@ -206,6 +261,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ma50 = calculateSMA(closes, 50);
     const ma150 = calculateSMA(closes, 150);
     const ma200 = calculateSMA(closes, 200);
+    const ma20 = calculateSMA(closes, 20);
 
     // Volume Contraction Logic
     const volumes = data.map(d => d.volume || 0);
@@ -214,37 +270,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
     const currentVolume = volumes[volumes.length - 1];
 
-    // 1. Static Local Pivot Logic (VCP Tightening Filter)
-    let localPivot = 0;
-    // Search backwards in the last 10 days for a stable tight area (5 days < 5% range)
-    for (let i = data.length - 1; i >= Math.max(0, data.length - 10); i--) {
-      if (i < 4) continue;
-      const window = data.slice(i - 4, i + 1);
-      const windowCloses = window.map(d => d.close);
-      const windowVolatility = (Math.max(...window.map(d => d.high)) - Math.min(...window.map(d => d.low))) / Math.min(...window.map(d => d.low));
-
-      if (windowVolatility < 0.05) {
-        localPivot = Math.max(...windowCloses);
-        break;
-      }
-    }
-    
-    // Fallback: If no strict VCP, use max of last 5 days
-    if (localPivot === 0) {
-      localPivot = Math.max(...data.slice(-5).map(d => d.close));
-    }
-
-    const isLocalPivotExtended = currentPrice > localPivot * 1.03;
-
-    // Extension from 50MA Calculation
-    const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
-
-    // Static Anchor Pivot Logic (Searching back 60 days for a stable base)
+    // 1. Static Anchor Pivot Logic (Searching back 60 days for a stable base)
     const last250Days = data.slice(-250);
     const high52w = Math.max(...last250Days.map(d => d.high));
     const low52w = Math.min(...last250Days.map(d => d.low));
 
     let anchorPivot = 0;
+    let pivotIdx = -1;
     // Search backwards from current to 60 days ago to find the most recent consolidation base
     for (let i = data.length - 1; i >= Math.max(0, data.length - 60); i--) {
       if (i < 4) continue;
@@ -252,13 +284,94 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const volatility = (Math.max(...window.map(d => d.high)) - Math.min(...window.map(d => d.low))) / Math.min(...window.map(d => d.low));
       if (volatility < 0.08) {
         anchorPivot = Math.max(...window.map(d => d.close));
+        const foundIdx = window.findIndex(d => d.close === anchorPivot);
+        pivotIdx = i - 4 + foundIdx;
         break;
       }
     }
 
     // If no consolidation found in 60 days, fallback to 52-week high close
     const pivotPrice = anchorPivot > 0 ? anchorPivot : Math.max(...last250Days.map(d => d.close));
-    
+    if (pivotIdx === -1) {
+      // Find the LAST index of the pivotPrice to ensure we are looking at the most recent peak
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i].close === pivotPrice || data[i].high === pivotPrice) {
+          pivotIdx = i;
+          break;
+        }
+      }
+    }
+
+    // 2. Strict VCP Identification Logic (Linear Structure: Pivot -> Pullback -> Handle)
+    let vcpHigh = null;
+    const volMA20 = vol20;
+
+    if (pivotIdx !== -1 && pivotIdx < data.length - 3) { // Lowered to catch recent trends
+      // Step 2: Mandatory "Pullback" check after Pivot
+      const afterPivotData = data.slice(pivotIdx + 1);
+      let pullbackLow = pivotPrice;
+      let pullbackIdxInAfterPivot = -1;
+
+      for (let i = 0; i < afterPivotData.length; i++) {
+        if (afterPivotData[i].low < pullbackLow) {
+          pullbackLow = afterPivotData[i].low;
+          pullbackIdxInAfterPivot = i;
+        }
+      }
+
+      const absolutePullbackIdx = pivotIdx + 1 + pullbackIdxInAfterPivot;
+      const pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
+
+      // Rule: Must have at least 2% pullback from Pivot to qualify (Relaxed for strong stocks)
+      if (pullbackPercentage >= 0.02) {
+        // Step 3: Seek tight handle strictly to the RIGHT of the pullback trough
+        for (let i = data.length - 1; i > absolutePullbackIdx; i--) {
+          if (i - absolutePullbackIdx < 2) break; // Need at least 3 days after trough
+
+          for (let windowSize = 3; windowSize <= 5; windowSize++) {
+            const startIdx = i - windowSize + 1;
+            if (startIdx <= absolutePullbackIdx) continue;
+
+            const window = data.slice(startIdx, i + 1);
+            const windowHighs = window.map(d => d.high);
+            const windowLows = window.map(d => d.low);
+            const windowVols = window.map(d => d.volume || 0);
+
+            const maxHigh = Math.max(...windowHighs);
+            const minLow = Math.min(...windowLows);
+            const avgWindowVol = windowVols.reduce((a, b) => a + b, 0) / windowSize;
+            const volatility = (maxHigh - minLow) / minLow;
+
+            // Calculate historical volume average at this point in time
+            const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || volMA20;
+            // Requirement: Volatility < 7% AND Volume Dry-out (below MA20)
+            const isLowVolume = avgWindowVol < volMA20AtPoint;
+
+            // VCP Handle Conditions
+            const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.88;
+            const isTight = volatility < 0.07;
+            
+            // Step 4: Strict price separation (< 0.5% diff is prohibited)
+            const isNotSameAsPivot = Math.abs(maxHigh - pivotPrice) / pivotPrice > 0.005;
+
+            if (isNearPivot && isTight && isLowVolume && isNotSameAsPivot) {
+              vcpHigh = maxHigh;
+              break;
+            }
+          }
+          if (vcpHigh !== null) break;
+        }
+      }
+    }
+
+    // 3. Extension Check
+    const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
+    const isExtended = currentPrice > pivotPrice * 1.25 || ma50Extension > 20;
+
+    // Use localPivot for backward compatibility if needed, but we prefer vcpHigh
+    const localPivot = vcpHigh || 0;
+    const isLocalPivotExtended = isExtended;
+
     const buyZoneMax = pivotPrice * 1.05;
     const suggestedStopLoss = pivotPrice * 0.92;
     const priceGap = pivotPrice - currentPrice;
@@ -283,6 +396,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
 
+    // Base Detection Logic (Minervini/O'Neil style)
+    let baseHigh = 0;
+    let baseDays = 0;
+    // Iterate backwards to find how many days the price has stayed within 15% of the local high
+    for (let i = data.length - 1; i >= 0; i--) {
+      const dayHigh = data[i].high;
+      const dayLow = data[i].low;
+      if (dayHigh > baseHigh) baseHigh = dayHigh;
+      
+      if (dayLow < baseHigh * 0.85) {
+        break; // Base broken: price dropped more than 15% from its highest point in this window
+      }
+      baseDays++;
+    }
+
+    let baseType = "None";
+    let baseLabel = "";
+    if (baseDays > 50) {
+      baseType = "Major";
+      baseLabel = "🌋 主力大底";
+    } else if (baseDays >= 25) {
+      baseType = "Normal";
+      baseLabel = "⚖️ 標準基地";
+    }
+
     res.status(200).json({
       symbol,
       shortName,
@@ -292,6 +430,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ma50,
       ma150,
       ma200,
+      baseDays,
+      baseType,
+      baseLabel,
+      vcpHigh,
+      isExtended,
       ma50Extension: ma50Extension.toFixed(2),
       extensionFrom50MA: ma50Extension.toFixed(2),
       isVolumeContracted,

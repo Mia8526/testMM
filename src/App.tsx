@@ -47,8 +47,13 @@ interface StockData {
   extensionFrom50MA: string;
   isVolumeContracted: boolean;
   localPivot: number;
+  vcpHigh: number | null;
+  isExtended: boolean;
   isLocalPivotExtended: boolean;
   vcpStatus: string;
+  baseDays: number;
+  baseType: string;
+  baseLabel: string;
   pivotPrice: number;
   buyZoneMax: number;
   suggestedStopLoss: number;
@@ -264,6 +269,7 @@ export default function App() {
       bg: "bg-rose-50 border-rose-100 animate-pulse" 
     };
   };
+
 
   return (
     <div className="flex min-h-screen bg-[#f1f5f9]">
@@ -584,7 +590,17 @@ export default function App() {
                         </div>
                         <div className="text-3xl font-bold text-[#0f172a]">
                           <span className="text-xs text-slate-400 font-medium block mb-1">收盤價 (Last Close)</span>
-                          {data.currency} {data.currentPrice.toFixed(2)}
+                          <div className="flex items-center gap-2">
+                            {data.currency} {data.currentPrice.toFixed(2)}
+                            {data.baseType !== 'None' && (
+                              <span className={cn(
+                                "text-[12px] px-2 py-1 rounded-md font-bold whitespace-nowrap",
+                                data.baseType === 'Major' ? "bg-purple-100 text-purple-700 border border-purple-200" : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                              )}>
+                                [ {data.baseLabel} {data.baseDays}天 ]
+                              </span>
+                            )}
+                          </div>
                           
                           {/* 明年預估 EPS 與成長率 */}
                           {data.epsForward !== null && (
@@ -655,9 +671,15 @@ export default function App() {
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0 py-4 border-y border-slate-50">
                           <span className="text-sm text-slate-500 font-medium whitespace-nowrap">最佳進場區 (Pivot ~ +5%)</span>
-                          <span className="text-lg sm:text-xl font-black text-emerald-600">
-                            NT$ {data.pivotPrice.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05).toFixed(2)}
-                          </span>
+                          {data.isExtended ? (
+                            <span className="text-sm sm:text-base px-3 py-1 bg-rose-50 text-rose-600 font-bold rounded-lg border border-rose-200 animate-pulse">
+                              🔥 Extended Move (加速延伸段，嚴禁追高)
+                            </span>
+                          ) : (
+                            <span className="text-lg sm:text-xl font-black text-emerald-600">
+                              NT$ {data.pivotPrice.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05).toFixed(2)}
+                            </span>
+                          )}
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
                            <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損 (-8%)</span>
@@ -705,21 +727,21 @@ export default function App() {
                               strokeDasharray="3 3" 
                               label={{ 
                                 position: 'insideRight', 
-                                value: `突破點 (${data.pivotPrice.toFixed(2)})`, 
+                                value: `PIVOT ${data.baseType !== 'None' ? `(${data.baseType} Base)` : ''} (${data.pivotPrice.toFixed(2)})`, 
                                 fill: '#f43f5e', 
                                 fontSize: 9, 
                                 fontWeight: 'bold' 
                               }} 
                             />
                           )}
-                          {data.localPivot > 0 && (
+                          {data.vcpHigh && !data.isExtended && (
                             <ReferenceLine 
-                               y={data.localPivot} 
+                               y={data.vcpHigh} 
                                stroke="#7dd3fc" 
                                strokeDasharray="3 3" 
                                label={{ 
                                  position: 'insideLeft', 
-                                 value: `VCP 高點 (${data.localPivot.toFixed(2)})`, 
+                                 value: `VCP ${data.isVolumeContracted ? '(Tight)' : ''} (${data.vcpHigh.toFixed(2)})`, 
                                  fill: '#0ea5e9', 
                                  fontSize: 9, 
                                  fontWeight: 'bold' 
