@@ -98,51 +98,63 @@ async function startServer(): Promise<void> {
 
       const tryFetch = async (sym: string) => {
         try {
-          console.log(`[${requestId}] tryFetch: ${sym}`);
+          console.log(`[${requestId}] tryFetch START: ${sym}`);
           const res = await fetchData(sym);
-          if (res && !('error' in res) && res.historical && res.historical.length > 0) return res;
+          if (res && !('error' in res) && res.historical && res.historical.length > 0) {
+            console.log(`[${requestId}] tryFetch SUCCESS (fetchData): ${sym}`);
+            return res;
+          }
           
           if (res && 'error' in res) {
             lastError = res.error;
             console.log(`[${requestId}] fetchData error for ${sym}: ${lastError}`);
+          } else if (res && (!res.historical || res.historical.length === 0)) {
+            console.log(`[${requestId}] fetchData returned empty results for ${sym}`);
+            lastError = 'No historical data found';
           }
           
           // Fallback to chart if historical fails or is empty
           console.log(`[${requestId}] Attempting chart fallback for ${sym}`);
-          const chartData = await yahooFinance.chart(sym, {
-            period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
-            period2: format(new Date(), 'yyyy-MM-dd'),
-            interval: '1d'
-          });
-          
-          if (chartData && chartData.quotes && chartData.quotes.length > 0) {
-            let quote = null;
-            try {
-              quote = await yahooFinance.quote(sym);
-            } catch (qe) {
-              console.error(`Quote fetch failed for ${sym} but chart data is OK`, qe);
-            }
-            const historical = chartData.quotes
-              .filter((q: any) => q.close !== null && q.close !== undefined)
-              .map((q: any) => ({
-                date: q.date,
-                open: q.open,
-                high: q.high,
-                low: q.low,
-                close: q.close,
-                volume: q.volume,
-                adjClose: q.adjclose
-              }));
+          try {
+            const chartData = await yahooFinance.chart(sym, {
+              period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
+              period2: format(new Date(), 'yyyy-MM-dd'),
+              interval: '1d'
+            });
             
-            if (historical.length > 0) {
-              return { historical, quote };
+            if (chartData && chartData.quotes && chartData.quotes.length > 0) {
+              let quote = null;
+              try {
+                quote = await yahooFinance.quote(sym);
+              } catch (qe) {
+                console.error(`Quote fetch failed for ${sym} but chart data is OK`, qe);
+              }
+              const historical = chartData.quotes
+                .filter((q: any) => q.close !== null && q.close !== undefined)
+                .map((q: any) => ({
+                  date: q.date,
+                  open: q.open,
+                  high: q.high,
+                  low: q.low,
+                  close: q.close,
+                  volume: q.volume,
+                  adjClose: q.adjclose
+                }));
+              
+              if (historical.length > 0) {
+                console.log(`[${requestId}] tryFetch SUCCESS (chartFallback): ${sym}. Points: ${historical.length}`);
+                return { historical, quote };
+              }
             }
+          } catch (chartError: any) {
+            console.log(`[${requestId}] chart fallback FAILED for ${sym}:`, chartError.message || chartError);
+            lastError = chartError.message || String(chartError);
           }
           
           return null;
         } catch (e: any) {
           lastError = e.message || String(e);
-          console.error(`[${requestId}] tryFetch FATAL error for ${sym}:`, lastError);
+          console.error(`[${requestId}] tryFetch FATAL runtime error for ${sym}:`, lastError);
           return null;
         }
       };
@@ -175,16 +187,19 @@ async function startServer(): Promise<void> {
           console.log(`[${requestId}] Both suffixes failed for ${pureCode}. Attempting general search.`);
           try {
             const searchResults = await yahooFinance.search(pureCode);
+            console.log(`[${requestId}] Search results count: ${searchResults.quotes?.length ?? 0}`);
             const bestMatch = searchResults.quotes.find((q: any) => 
               q.symbol.startsWith(pureCode) && (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO'))
             );
             if (bestMatch) {
-              console.log(`[${requestId}] Search found better symbol: ${bestMatch.symbol}`);
+              console.log(`[${requestId}] Search found best match: ${bestMatch.symbol} (${bestMatch.shortname || ''})`);
               fetchResult = await tryFetch(bestMatch.symbol);
               if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
                 symbol = bestMatch.symbol;
                 marketType = symbol.endsWith('.TW') ? '上市' : '上櫃';
               }
+            } else {
+              console.log(`[${requestId}] Search could not find a valid Taiwan suffix match for ${pureCode}`);
             }
           } catch (se) {
             console.error(`[${requestId}] Search fallback failed:`, se);
@@ -277,44 +292,61 @@ async function startServer(): Promise<void> {
       const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
       const currentVolume = volumes[volumes.length - 1];
 
-      // 1. Static Anchor Pivot Logic (Searching back 60 days for a stable base)
+      // 1. Pivot Detection (Refined for stocks at/near new highs like 3717)
       const last250Days = data.slice(-250);
       const high52w = Math.max(...last250Days.map(d => d.high));
       const low52w = Math.min(...last250Days.map(d => d.low));
 
       let anchorPivot = 0;
       let pivotIdx = -1;
-      // Search backwards from current to 60 days ago to find the most recent consolidation base
-      for (let i = data.length - 1; i >= Math.max(0, data.length - 60); i--) {
-        if (i < 4) continue;
-        const window = data.slice(i - 4, i + 1);
-        const volatility = (Math.max(...window.map(d => d.high)) - Math.min(...window.map(d => d.low))) / Math.min(...window.map(d => d.low));
-        if (volatility < 0.08) {
-          anchorPivot = Math.max(...window.map(d => d.close));
-          const foundIdx = window.findIndex(d => d.close === anchorPivot);
-          pivotIdx = i - 4 + foundIdx;
+
+      const peakSearchWindow = data.slice(-120);
+      const absolutePeak = Math.max(...peakSearchWindow.map(d => d.high));
+      
+      let peakIdxInWindow = -1;
+      for (let i = peakSearchWindow.length - 1; i >= 0; i--) {
+        if (peakSearchWindow[i].high === absolutePeak) {
+          peakIdxInWindow = i;
           break;
         }
       }
-
-      // If no consolidation found in 60 days, fallback to 52-week high close
-      const pivotPrice = anchorPivot > 0 ? anchorPivot : Math.max(...last250Days.map(d => d.close));
-      if (pivotIdx === -1) {
-        // Find the LAST index of the pivotPrice to ensure we are looking at the most recent peak
-        for (let i = data.length - 1; i >= 0; i--) {
-          if (data[i].close === pivotPrice || data[i].high === pivotPrice) {
-            pivotIdx = i;
-            break;
+      const absolutePeakIdx = (data.length - 120) + peakIdxInWindow;
+      
+      // If peak is too recent (last 10 days), it's a breakout. Seek the "Previous Rim"
+      if (absolutePeakIdx > data.length - 10) {
+        const olderWindow = peakSearchWindow.slice(0, Math.max(0, peakIdxInWindow - 10));
+        if (olderWindow.length > 20) {
+          const previousPeak = Math.max(...olderWindow.map(d => d.high));
+          let prevPeakIdx = -1;
+          for (let i = olderWindow.length - 1; i >= 0; i--) {
+            if (olderWindow[i].high === previousPeak) {
+              prevPeakIdx = i;
+              break;
+            }
           }
+          anchorPivot = previousPeak;
+          pivotIdx = (data.length - 120) + prevPeakIdx;
+        } else {
+          anchorPivot = absolutePeak;
+          pivotIdx = absolutePeakIdx;
         }
+      } else {
+        anchorPivot = absolutePeak;
+        pivotIdx = absolutePeakIdx;
       }
 
-      // 2. Strict VCP Identification Logic (Linear Structure: Pivot -> Pullback -> Handle)
+      const pivotPrice = anchorPivot;
+
+      // 2. Strict VCP Identification Logic
       let vcpHigh = null;
+      let vcpHighIdx = -1;
+      let handleStartIdx = -1;
+      let pullbackIdx = -1;
       const volMA20 = vol20;
 
-      if (pivotIdx !== -1 && pivotIdx < data.length - 3) { // Lowered to catch recent trends
-        // Step 2: Mandatory "Pullback" check after Pivot
+      // A VCP sequence MUST happen AFTER the pivot peak
+      if (pivotIdx !== -1 && pivotIdx < data.length - 3) {
+        // Step 2: Seek the "Pullback Low" after the pivot
         const afterPivotData = data.slice(pivotIdx + 1);
         let pullbackLow = pivotPrice;
         let pullbackIdxInAfterPivot = -1;
@@ -327,46 +359,37 @@ async function startServer(): Promise<void> {
         }
 
         const absolutePullbackIdx = pivotIdx + 1 + pullbackIdxInAfterPivot;
+        pullbackIdx = absolutePullbackIdx;
         const pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
 
-        // Rule: Must have at least 2% pullback from Pivot to qualify (Relaxed for strong stocks)
+        // Rule: Relaxed to 2% for strong stocks
         if (pullbackPercentage >= 0.02) {
           // Step 3: Seek tight handle strictly to the RIGHT of the pullback trough
           for (let i = data.length - 1; i > absolutePullbackIdx; i--) {
-            if (i - absolutePullbackIdx < 2) break; // Need at least 3 days after trough
+            if (i - absolutePullbackIdx < 2) break;
 
-            for (let windowSize = 3; windowSize <= 5; windowSize++) {
-              const startIdx = i - windowSize + 1;
-              if (startIdx <= absolutePullbackIdx) continue;
+            const windowSize = Math.min(8, i - absolutePullbackIdx);
+            if (windowSize < 3) continue;
 
-              const window = data.slice(startIdx, i + 1);
-              const windowHighs = window.map(d => d.high);
-              const windowLows = window.map(d => d.low);
-              const windowVols = window.map(d => d.volume || 0);
+            const startIdx = i - windowSize + 1;
+            const window = data.slice(startIdx, i + 1);
+            const maxHigh = Math.max(...window.map(d => d.high));
+            const minLow = Math.min(...window.map(d => d.low));
+            const avgVol = window.reduce((sum, d) => sum + (d.volume || 0), 0) / windowSize;
+            const volatility = (maxHigh - minLow) / minLow;
 
-              const maxHigh = Math.max(...windowHighs);
-              const minLow = Math.min(...windowLows);
-              const avgWindowVol = windowVols.reduce((a, b) => a + b, 0) / windowSize;
-              const volatility = (maxHigh - minLow) / minLow;
+            // Refined constraints for more precise VCP identification
+            const isTight = volatility < 0.08; 
+            const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.85;
+            const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || volMA20;
+            const isLowVolume = avgVol < volMA20AtPoint; 
 
-              // Calculate historical volume average at this point in time
-              const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || volMA20;
-              // Requirement: Volatility < 7% AND Volume Dry-out (below MA20)
-              const isLowVolume = avgWindowVol < volMA20AtPoint;
-
-              // VCP Handle Conditions
-              const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.88;
-              const isTight = volatility < 0.07;
-              
-              // Step 4: Strict price separation (< 0.5% diff is prohibited)
-              const isNotSameAsPivot = Math.abs(maxHigh - pivotPrice) / pivotPrice > 0.005;
-
-              if (isNearPivot && isTight && isLowVolume && isNotSameAsPivot) {
-                vcpHigh = maxHigh;
-                break;
-              }
+            if (isTight && isNearPivot && isLowVolume) {
+              vcpHigh = maxHigh;
+              vcpHighIdx = i;
+              handleStartIdx = startIdx;
+              break;
             }
-            if (vcpHigh !== null) break;
           }
         }
       }
@@ -470,6 +493,16 @@ async function startServer(): Promise<void> {
         isTemplateMet,
         epsForward,
         epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
+        vcpPoints: {
+          pivotIdx,
+          pullbackIdx,
+          handleStartIdx,
+          handleEndIdx: vcpHighIdx,
+          pivotDate: pivotIdx !== -1 ? format(data[pivotIdx].date, 'yyyy-MM-dd') : null,
+          pullbackDate: pullbackIdx !== -1 ? format(data[pullbackIdx].date, 'yyyy-MM-dd') : null,
+          handleStartDate: handleStartIdx !== -1 ? format(data[handleStartIdx].date, 'yyyy-MM-dd') : null,
+          handleEndDate: vcpHighIdx !== -1 ? format(data[vcpHighIdx].date, 'yyyy-MM-dd') : null,
+        },
         chartData: data.slice(-200).map((d, i, arr) => {
           // Calculate MA indices more efficiently
           const dataIndex = data.length - arr.length + i;

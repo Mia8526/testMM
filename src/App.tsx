@@ -24,7 +24,9 @@ import {
   Tooltip, 
   ResponsiveContainer,
   Legend,
-  ReferenceLine
+  ReferenceLine,
+  ReferenceArea,
+  ReferenceDot
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -76,6 +78,16 @@ interface StockData {
   isTemplateMet: boolean;
   epsForward: number | null;
   epsGrowth: string | null;
+  vcpPoints: {
+    pivotIdx: number;
+    pullbackIdx: number;
+    handleStartIdx: number;
+    handleEndIdx: number;
+    pivotDate: string | null;
+    pullbackDate: string | null;
+    handleStartDate: string | null;
+    handleEndDate: string | null;
+  };
   chartData: any[];
 }
 
@@ -270,6 +282,9 @@ export default function App() {
     };
   };
 
+
+  const Area = ReferenceArea as any;
+  const Dot = ReferenceDot as any;
 
   return (
     <div className="flex min-h-screen bg-[#f1f5f9]">
@@ -720,6 +735,41 @@ export default function App() {
                             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                             formatter={(value: any) => typeof value === 'number' ? value.toFixed(2) : value}
                           />
+                          
+                          {/* VCP Components Visualization */}
+                          {data.vcpPoints.pivotDate && data.chartData.some(d => d.date === data.vcpPoints.pivotDate) && (
+                            <Dot 
+                              x={data.vcpPoints.pivotDate} 
+                              y={data.pivotPrice} 
+                              r={4} 
+                              fill="#f43f5e" 
+                              stroke="#fff" 
+                              strokeWidth={2}
+                              label={{ position: 'top', value: '▼ Rim', fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
+                            />
+                          )}
+                          
+                          {data.vcpPoints.pullbackDate && data.chartData.some(d => d.date === data.vcpPoints.pullbackDate) && (
+                            <Dot 
+                              x={data.vcpPoints.pullbackDate} 
+                              y={data.chartData.find(d => d.date === data.vcpPoints.pullbackDate)?.price || 0} 
+                              r={4} 
+                              fill="#64748b" 
+                              stroke="#fff" 
+                              strokeWidth={2}
+                              label={{ position: 'bottom', value: '▲ Dip', fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} 
+                            />
+                          )}
+
+                          {data.vcpPoints.handleStartDate && data.vcpPoints.handleEndDate && (
+                            <Area 
+                              x1={data.vcpPoints.handleStartDate} 
+                              x2={data.vcpPoints.handleEndDate} 
+                              fill="#3b82f6" 
+                              fillOpacity={0.1} 
+                            />
+                          )}
+
                           {data.pivotPrice > 0 && (
                             <ReferenceLine 
                               y={data.pivotPrice} 
@@ -727,27 +777,26 @@ export default function App() {
                               strokeDasharray="3 3" 
                               label={{ 
                                 position: 'insideRight', 
-                                value: `PIVOT ${data.baseType !== 'None' ? `(${data.baseType} Base)` : ''} (${data.pivotPrice.toFixed(2)})`, 
+                                value: `Breakout Ceiling (${data.pivotPrice.toFixed(2)})`, 
                                 fill: '#f43f5e', 
                                 fontSize: 9, 
                                 fontWeight: 'bold' 
                               }} 
                             />
                           )}
-                          {data.vcpHigh && !data.isExtended && (
-                            <ReferenceLine 
-                               y={data.vcpHigh} 
-                               stroke="#7dd3fc" 
-                               strokeDasharray="3 3" 
-                               label={{ 
-                                 position: 'insideLeft', 
-                                 value: `VCP ${data.isVolumeContracted ? '(Tight)' : ''} (${data.vcpHigh.toFixed(2)})`, 
-                                 fill: '#0ea5e9', 
-                                 fontSize: 9, 
-                                 fontWeight: 'bold' 
-                               }} 
+                          
+                          {data.vcpStatus === "帶量突破" && (
+                             <Dot 
+                               x={data.chartData[data.chartData.length - 1].date} 
+                               y={data.chartData[data.chartData.length - 1].price} 
+                               r={6} 
+                               fill="#10b981" 
+                               stroke="#fff" 
+                               strokeWidth={3}
+                               label={{ position: 'top', value: '🚀 BREAKOUT', fill: '#10b981', fontSize: 11, fontWeight: 'black' }} 
                              />
                           )}
+
                           <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
                           <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
                           <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" strokeDasharray="4 4" />
