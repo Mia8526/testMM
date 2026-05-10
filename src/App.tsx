@@ -77,6 +77,8 @@ interface StockData {
   fundamentalStatus: string;
   isTemplateMet: boolean;
   epsForward: number | null;
+  epsTrailing: number | null;
+  peRatio: number | null;
   epsGrowth: string | null;
   vcpPoints: {
     pivotIdx: number;
@@ -98,6 +100,7 @@ interface WatchlistItem {
   shortName: string;
   price: number;
   currency: string;
+  peRatio: number | null;
   pivotPrice: number;
   suggestedStopLoss: number;
   ma50Extension: string;
@@ -146,6 +149,7 @@ export default function App() {
       shortName: data.shortName,
       price: data.currentPrice,
       currency: data.currency,
+      peRatio: data.peRatio,
       pivotPrice: data.pivotPrice,
       suggestedStopLoss: data.suggestedStopLoss,
       ma50Extension: data.ma50Extension,
@@ -176,12 +180,13 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "本益比", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
+      item.peRatio !== null ? `${item.peRatio.toFixed(1)}x` : "-",
       item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
       item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-",
       `${item.ma50Extension}%`,
@@ -454,6 +459,7 @@ export default function App() {
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">本益比</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">建議停損</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
@@ -470,6 +476,15 @@ export default function App() {
                             <div className="text-xs text-slate-400">{item.symbol}</div>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
+                          <td className="px-6 py-4">
+                            {item.peRatio !== null ? (
+                              <span className="text-sm font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                                {item.peRatio.toFixed(1)}x
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-300">-</span>
+                            )}
+                          </td>
                           <td className="px-6 py-4 text-sm font-bold text-slate-900">
                             {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
                           </td>
@@ -617,22 +632,38 @@ export default function App() {
                             )}
                           </div>
                           
-                          {/* 明年預估 EPS 與成長率 */}
-                          {data.epsForward !== null && (
-                            <div className="mt-2 flex justify-end">
-                              <span className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm transition-all duration-300",
-                                data.epsGrowth && parseFloat(data.epsGrowth) >= 20 
-                                  ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10" 
-                                  : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
-                              )}>
-                                預估 EPS: ${data.epsForward.toFixed(2)}
-                                {data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
-                                  <span className="ml-1.5 opacity-90">
-                                    (YoY +{data.epsGrowth}%)
+                          {/* PE 與 預估 EPS 與成長率 */}
+                          {(data.epsForward !== null || data.peRatio !== null) && (
+                            <div className="mt-2 flex flex-col items-end gap-1.5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">財務估值 (Fundamentals)</span>
+                              <div className="flex gap-2">
+                                {data.peRatio !== null && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-[#f1f5f9] text-[#475569] border border-[#e2e8f0] shadow-sm">
+                                    本益比 (TTM): {data.peRatio.toFixed(1)}x
                                   </span>
                                 )}
-                              </span>
+                                {data.epsForward !== null && (
+                                  <span className={cn(
+                                    "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm transition-all duration-300",
+                                    data.epsGrowth && parseFloat(data.epsGrowth) >= 20 
+                                      ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10" 
+                                      : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
+                                  )}>
+                                    預估 EPS: ${data.epsForward.toFixed(2)}
+                                    {data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
+                                      <span className="ml-1.5 opacity-90">
+                                        (YoY +{data.epsGrowth}%)
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                              {/* 預估本益比 (如果有的話) */}
+                              {data.epsForward !== null && data.currentPrice && (
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  預估本益比: {(data.currentPrice / data.epsForward).toFixed(1)}x
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -745,7 +776,7 @@ export default function App() {
                               fill="#f43f5e" 
                               stroke="#fff" 
                               strokeWidth={2}
-                              label={{ position: 'top', value: '▼ Rim', fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
+                              label={{ position: 'top', value: `Pivot (${data.vcpPoints.pivotDate})`, fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
                             />
                           )}
                           
@@ -757,7 +788,7 @@ export default function App() {
                               fill="#64748b" 
                               stroke="#fff" 
                               strokeWidth={2}
-                              label={{ position: 'bottom', value: '▲ Dip', fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} 
+                              label={{ position: 'bottom', value: `Pullback (${data.vcpPoints.pullbackDate})`, fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} 
                             />
                           )}
 
@@ -766,7 +797,8 @@ export default function App() {
                               x1={data.vcpPoints.handleStartDate} 
                               x2={data.vcpPoints.handleEndDate} 
                               fill="#3b82f6" 
-                              fillOpacity={0.1} 
+                              fillOpacity={0.15} 
+                              label={{ position: 'top', value: 'VCP Handle', fill: '#3b82f6', fontSize: 10, fontWeight: 'bold' }}
                             />
                           )}
 

@@ -76,12 +76,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
         const historical: any = await yahooFinance.historical(sym, queryOptions);
         let quote = null;
+        let summary = null;
         try {
           quote = await yahooFinance.quote(sym);
         } catch (qe) {
-          console.error(`fetchData: Quote fetch failed for ${sym} but historical is OK`, qe);
+          // Quietly log quote failure if historical worked
         }
-        return { historical, quote };
+        try {
+          summary = await yahooFinance.quoteSummary(sym, { modules: ['summaryDetail', 'defaultKeyStatistics'] });
+        } catch (se) {
+          // Summary might fail for some tickers
+        }
+        return { historical, quote, summary };
       } catch (e: any) {
         return { error: e.message || String(e) };
       }
@@ -92,23 +98,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const tryFetch = async (sym: string) => {
       try {
-        console.log(`[${requestId}] tryFetch START: ${sym}`);
+        // Quietly try fetching
         const res = await fetchData(sym);
         if (res && !('error' in res) && res.historical && res.historical.length > 0) {
-          console.log(`[${requestId}] tryFetch SUCCESS (fetchData): ${sym}`);
           return res;
         }
         
         if (res && 'error' in res) {
           lastError = res.error;
-          console.log(`[${requestId}] fetchData error for ${sym}: ${lastError}`);
         } else if (res && (!res.historical || res.historical.length === 0)) {
-          console.log(`[${requestId}] fetchData returned empty results for ${sym}`);
           lastError = 'No historical data found';
         }
         
         // Fallback to chart if historical fails or is empty
-        console.log(`[${requestId}] Attempting chart fallback for ${sym}`);
         try {
           const chartData = await yahooFinance.chart(sym, {
             period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
@@ -121,7 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             try {
               quote = await yahooFinance.quote(sym);
             } catch (qe) {
-              console.error(`Quote fetch failed for ${sym} but chart data is OK`, qe);
+              // Ignore quote error for chart fallback
             }
             const historical = chartData.quotes
               .filter((q: any) => q.close !== null && q.close !== undefined)
@@ -136,19 +138,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }));
             
             if (historical.length > 0) {
-              console.log(`[${requestId}] tryFetch SUCCESS (chartFallback): ${sym}. Points: ${historical.length}`);
               return { historical, quote };
             }
           }
         } catch (chartError: any) {
-          console.log(`[${requestId}] chart fallback FAILED for ${sym}:`, chartError.message || chartError);
           lastError = chartError.message || String(chartError);
         }
         
         return null;
       } catch (e: any) {
         lastError = e.message || String(e);
-        console.error(`[${requestId}] tryFetch FATAL runtime error for ${sym}:`, lastError);
         return null;
       }
     };
@@ -164,10 +163,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.log(`[${requestId}] Detected Taiwan numeric symbol: ${pureCode}. Trying ${preferredSuffix} first.`);
       fetchResult = await tryFetch(`${pureCode}.${preferredSuffix}`);
       
-      if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
-        console.log(`[${requestId}] ${preferredSuffix} failed or empty, trying ${alternativeSuffix}.`);
+      if (!fetchResult) {
+        console.log(`[${requestId}] ${preferredSuffix} failed for ${pureCode}, trying ${alternativeSuffix}.`);
         fetchResult = await tryFetch(`${pureCode}.${alternativeSuffix}`);
-        if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+        if (fetchResult) {
           symbol = `${pureCode}.${alternativeSuffix}`;
           marketType = alternativeSuffix === 'TW' ? '上市' : '上櫃';
         }
@@ -178,22 +177,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Final attempt: Search if both failed
       if (!fetchResult) {
-        console.log(`[${requestId}] Both suffixes failed for ${pureCode}. Attempting general search.`);
+        console.log(`[${requestId}] Both standard suffixes failed for ${pureCode}. Attempting search fallback.`);
         try {
           const searchResults = await yahooFinance.search(pureCode);
-          console.log(`[${requestId}] Search results count: ${searchResults.quotes?.length ?? 0}`);
           const bestMatch = searchResults.quotes.find((q: any) => 
-            q.symbol.startsWith(pureCode) && (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO'))
+            (q.symbol.startsWith(pureCode) || q.symbol === pureCode) && 
+            (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO') || q.exchDisp === 'Taiwan' || q.exchDisp === 'Taipei Exchange')
           );
           if (bestMatch) {
-            console.log(`[${requestId}] Search found best match: ${bestMatch.symbol} (${bestMatch.shortname || ''})`);
+            console.log(`[${requestId}] Search found viable match: ${bestMatch.symbol}`);
             fetchResult = await tryFetch(bestMatch.symbol);
-            if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+            if (fetchResult) {
               symbol = bestMatch.symbol;
               marketType = symbol.endsWith('.TW') ? '上市' : '上櫃';
             }
-          } else {
-            console.log(`[${requestId}] Search could not find a valid Taiwan suffix match for ${pureCode}`);
           }
         } catch (se) {
           console.error(`[${requestId}] Search fallback failed:`, se);
@@ -255,17 +252,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Fundamental Extension: Forward EPS & Growth (Robust Error Handling)
     let epsForward = null;
     let epsGrowth = null;
+    let epsTrailing = null;
+    let peRatio = null;
     
     try {
       // Use optional chaining for everything
-      epsForward = fetchResult?.quote?.epsForward ?? fetchResult?.quote?.trailingEps ?? null;
-      const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
+      const quote = fetchResult?.quote;
+      const summary = fetchResult?.summary;
       
+      epsTrailing = quote?.trailingEps || summary?.defaultKeyStatistics?.trailingEps || null;
+      epsForward = quote?.forwardEps || summary?.defaultKeyStatistics?.forwardEps || epsTrailing || null;
+      const epsCurrentYear = quote?.epsCurrentYear || null;
+      
+      // Try to get PE directly from quote or summary
+      peRatio = quote?.trailingPE || summary?.summaryDetail?.trailingPE || quote?.peRatio || null;
+
       if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
         epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
       }
+
+      // If peRatio still null, calculate it
+      if (peRatio === null && epsTrailing && epsTrailing !== 0) {
+        peRatio = currentPrice / epsTrailing;
+      }
+      
+      // Final fallback for peRatio if still null but we have forward data
+      if (peRatio === null && epsForward && epsForward !== 0) {
+        peRatio = currentPrice / epsForward;
+      }
     } catch (e) {
-      console.error("Error fetching/calculating EPS:", e);
+      console.error("Error fetching/calculating EPS/PE:", e);
     }
 
     // If we have a newer quote price, ensure it's used for SMA calculations
@@ -285,7 +301,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
     const currentVolume = volumes[volumes.length - 1];
 
-    // 1. Pivot Detection (Refined for stocks at/near new highs like 3717)
+    // 1. Pivot Detection (Refined for stocks at/near new highs)
     const last250Days = data.slice(-250);
     const high52w = Math.max(...last250Days.map(d => d.high));
     const low52w = Math.min(...last250Days.map(d => d.low));
@@ -293,32 +309,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let anchorPivot = 0;
     let pivotIdx = -1;
 
+    // Use a multi-pass approach to find a valid "Rim" (Ceiling)
     const peakSearchWindow = data.slice(-120);
     const absolutePeak = Math.max(...peakSearchWindow.map(d => d.high));
     
-    let peakIdxInWindow = -1;
+    // Find the last index of the absolute peak
+    let absolutePeakIdxInWindow = -1;
     for (let i = peakSearchWindow.length - 1; i >= 0; i--) {
       if (peakSearchWindow[i].high === absolutePeak) {
-        peakIdxInWindow = i;
+        absolutePeakIdxInWindow = i;
         break;
       }
     }
-    const absolutePeakIdx = (data.length - 120) + peakIdxInWindow;
+    const absolutePeakIdx = (data.length - 120) + absolutePeakIdxInWindow;
     
-    // If peak is too recent (last 10 days), it's a breakout. Seek the "Previous Rim"
-    if (absolutePeakIdx > data.length - 10) {
-      const olderWindow = peakSearchWindow.slice(0, Math.max(0, peakIdxInWindow - 10));
-      if (olderWindow.length > 20) {
-        const previousPeak = Math.max(...olderWindow.map(d => d.high));
-        let prevPeakIdx = -1;
-        for (let i = olderWindow.length - 1; i >= 0; i--) {
-          if (olderWindow[i].high === previousPeak) {
-            prevPeakIdx = i;
+    // REFINEMENT: If the absolute peak is very old (> 70 days ago), 
+    // it might not be the relevant "Rim" for the current base.
+    // We check if there's a more recent significant local peak.
+    if (absolutePeakIdxInWindow < peakSearchWindow.length - 70) {
+      const recentWindow = peakSearchWindow.slice(-60);
+      const recentPeak = Math.max(...recentWindow.map(d => d.high));
+      // If recent peak is within a reasonable distance (e.g., > 85% of absolute peak), use it instead
+      if (recentPeak >= absolutePeak * 0.85) {
+        anchorPivot = recentPeak;
+        let recentPeakIdx = -1;
+        for (let i = recentWindow.length - 1; i >= 0; i--) {
+          if (recentWindow[i].high === recentPeak) {
+            recentPeakIdx = i;
             break;
           }
         }
-        anchorPivot = previousPeak;
-        pivotIdx = (data.length - 120) + prevPeakIdx;
+        pivotIdx = (data.length - 60) + recentPeakIdx;
+      } else {
+        anchorPivot = absolutePeak;
+        pivotIdx = absolutePeakIdx;
+      }
+    } else if (absolutePeakIdx > data.length - 15) {
+      // Current breakout scenario: seek the rim that occurred BEFORE the current surge
+      const lookbackForRim = peakSearchWindow.slice(0, Math.max(0, absolutePeakIdxInWindow - 15));
+      if (lookbackForRim.length > 10) {
+        const rimPrice = Math.max(...lookbackForRim.map(d => d.high));
+        let rimIdxInLookback = -1;
+        for (let i = lookbackForRim.length - 1; i >= 0; i--) {
+          if (lookbackForRim[i].high === rimPrice) {
+            rimIdxInLookback = i;
+            break;
+          }
+        }
+        anchorPivot = rimPrice;
+        pivotIdx = (data.length - 120) + rimIdxInLookback;
       } else {
         anchorPivot = absolutePeak;
         pivotIdx = absolutePeakIdx;
@@ -328,6 +367,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       pivotIdx = absolutePeakIdx;
     }
 
+    // Final sanity check: Anchor pivot should be the ceiling price used for breakout
     const pivotPrice = anchorPivot;
 
     // 2. Strict VCP Identification Logic
@@ -418,6 +458,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cond7 = distFromHigh <= 0.25;
 
     const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
+    
+    const reasons: string[] = [];
+    if (!cond1) reasons.push("價格未能在 150MA 與 200MA 之上");
+    if (!cond2) reasons.push("150MA 未能高於 200MA");
+    if (!cond3) reasons.push("200MA 趨勢未能在最近一個月內呈現上揚");
+    if (!cond4) reasons.push("50MA 未能高於 150MA 與 200MA");
+    if (!cond5) reasons.push("價格未能在 50MA 之上");
+    if (!cond6) reasons.push(`股價距離 52週低點漲幅不足 30% (目前: ${(distFromLow * 100).toFixed(1)}%)`);
+    if (!cond7) reasons.push(`股價距離 52週高點超過 25% (目前: ${(distFromHigh * 100).toFixed(1)}%)`);
 
     // Base Detection Logic (Minervini/O'Neil style)
     let baseHigh = 0;
@@ -484,7 +533,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       fundamentalStatus: "技術面符合，等待財報數據串接",
       isTemplateMet,
+      reasons,
       epsForward,
+      epsTrailing,
+      peRatio,
       epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
       vcpPoints: {
         pivotIdx,
