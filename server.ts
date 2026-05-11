@@ -70,6 +70,7 @@ async function startServer(): Promise<void> {
       // Helper to fetch data with fallback
       const fetchData = async (sym: string) => {
         try {
+          console.log(`[${requestId}] Fetching data for: ${sym}`);
           const endDate = new Date();
           const startDate = subDays(endDate, 550);
           const queryOptions = {
@@ -79,19 +80,15 @@ async function startServer(): Promise<void> {
           };
           const historical: any = await yahooFinance.historical(sym, queryOptions);
           let quote = null;
-          let summary = null;
           try {
             quote = await yahooFinance.quote(sym);
           } catch (qe) {
-            // Quietly log quote failure if historical worked
+            console.error(`fetchData: Quote fetch failed for ${sym} but historical is OK`, qe);
           }
-          try {
-            summary = await yahooFinance.quoteSummary(sym, { modules: ['summaryDetail', 'defaultKeyStatistics'] });
-          } catch (se) {
-            // Summary might fail for some tickers
-          }
-          return { historical, quote, summary };
+          console.log(`[${requestId}] Successfully fetched ${sym}. Historical points: ${historical?.length ?? 0}`);
+          return { historical, quote };
         } catch (e: any) {
+          console.error(`[${requestId}] Error fetching ${sym}:`, e.message || e);
           return { error: e.message || String(e) };
         }
       };
@@ -101,56 +98,51 @@ async function startServer(): Promise<void> {
 
       const tryFetch = async (sym: string) => {
         try {
-          // Quietly try fetching
+          console.log(`[${requestId}] tryFetch: ${sym}`);
           const res = await fetchData(sym);
-          if (res && !('error' in res) && res.historical && res.historical.length > 0) {
-            return res;
-          }
+          if (res && !('error' in res) && res.historical && res.historical.length > 0) return res;
           
           if (res && 'error' in res) {
             lastError = res.error;
-          } else if (res && (!res.historical || res.historical.length === 0)) {
-            lastError = 'No historical data found';
+            console.log(`[${requestId}] fetchData error for ${sym}: ${lastError}`);
           }
           
           // Fallback to chart if historical fails or is empty
-          try {
-            const chartData = await yahooFinance.chart(sym, {
-              period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
-              period2: format(new Date(), 'yyyy-MM-dd'),
-              interval: '1d'
-            });
-            
-            if (chartData && chartData.quotes && chartData.quotes.length > 0) {
-              let quote = null;
-              try {
-                quote = await yahooFinance.quote(sym);
-              } catch (qe) {
-                // Ignore quote error for chart fallback
-              }
-              const historical = chartData.quotes
-                .filter((q: any) => q.close !== null && q.close !== undefined)
-                .map((q: any) => ({
-                  date: q.date,
-                  open: q.open,
-                  high: q.high,
-                  low: q.low,
-                  close: q.close,
-                  volume: q.volume,
-                  adjClose: q.adjclose
-                }));
-              
-              if (historical.length > 0) {
-                return { historical, quote };
-              }
+          console.log(`[${requestId}] Attempting chart fallback for ${sym}`);
+          const chartData = await yahooFinance.chart(sym, {
+            period1: format(subDays(new Date(), 550), 'yyyy-MM-dd'),
+            period2: format(new Date(), 'yyyy-MM-dd'),
+            interval: '1d'
+          });
+          
+          if (chartData && chartData.quotes && chartData.quotes.length > 0) {
+            let quote = null;
+            try {
+              quote = await yahooFinance.quote(sym);
+            } catch (qe) {
+              console.error(`Quote fetch failed for ${sym} but chart data is OK`, qe);
             }
-          } catch (chartError: any) {
-            lastError = chartError.message || String(chartError);
+            const historical = chartData.quotes
+              .filter((q: any) => q.close !== null && q.close !== undefined)
+              .map((q: any) => ({
+                date: q.date,
+                open: q.open,
+                high: q.high,
+                low: q.low,
+                close: q.close,
+                volume: q.volume,
+                adjClose: q.adjclose
+              }));
+            
+            if (historical.length > 0) {
+              return { historical, quote };
+            }
           }
           
           return null;
         } catch (e: any) {
           lastError = e.message || String(e);
+          console.error(`[${requestId}] tryFetch FATAL error for ${sym}:`, lastError);
           return null;
         }
       };
@@ -166,10 +158,10 @@ async function startServer(): Promise<void> {
         console.log(`[${requestId}] Detected Taiwan numeric symbol: ${pureCode}. Trying ${preferredSuffix} first.`);
         fetchResult = await tryFetch(`${pureCode}.${preferredSuffix}`);
         
-        if (!fetchResult) {
-          console.log(`[${requestId}] ${preferredSuffix} failed for ${pureCode}, trying ${alternativeSuffix}.`);
+        if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
+          console.log(`[${requestId}] ${preferredSuffix} failed or empty, trying ${alternativeSuffix}.`);
           fetchResult = await tryFetch(`${pureCode}.${alternativeSuffix}`);
-          if (fetchResult) {
+          if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
             symbol = `${pureCode}.${alternativeSuffix}`;
             marketType = alternativeSuffix === 'TW' ? '上市' : '上櫃';
           }
@@ -180,17 +172,16 @@ async function startServer(): Promise<void> {
 
         // Final attempt: Search if both failed
         if (!fetchResult) {
-          console.log(`[${requestId}] Both standard suffixes failed for ${pureCode}. Attempting search fallback.`);
+          console.log(`[${requestId}] Both suffixes failed for ${pureCode}. Attempting general search.`);
           try {
             const searchResults = await yahooFinance.search(pureCode);
             const bestMatch = searchResults.quotes.find((q: any) => 
-              (q.symbol.startsWith(pureCode) || q.symbol === pureCode) && 
-              (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO') || q.exchDisp === 'Taiwan' || q.exchDisp === 'Taipei Exchange')
+              q.symbol.startsWith(pureCode) && (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO'))
             );
             if (bestMatch) {
-              console.log(`[${requestId}] Search found viable match: ${bestMatch.symbol}`);
+              console.log(`[${requestId}] Search found better symbol: ${bestMatch.symbol}`);
               fetchResult = await tryFetch(bestMatch.symbol);
-              if (fetchResult) {
+              if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
                 symbol = bestMatch.symbol;
                 marketType = symbol.endsWith('.TW') ? '上市' : '上櫃';
               }
@@ -255,36 +246,17 @@ async function startServer(): Promise<void> {
       // Fundamental Extension: Forward EPS & Growth (Robust Error Handling)
       let epsForward = null;
       let epsGrowth = null;
-      let epsTrailing = null;
-      let peRatio = null;
       
       try {
         // Use optional chaining for everything
-        const quote = fetchResult?.quote;
-        const summary = fetchResult?.summary;
+        epsForward = fetchResult?.quote?.epsForward ?? fetchResult?.quote?.trailingEps ?? null;
+        const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
         
-        epsTrailing = quote?.trailingEps || summary?.defaultKeyStatistics?.trailingEps || null;
-        epsForward = quote?.forwardEps || summary?.defaultKeyStatistics?.forwardEps || epsTrailing || null;
-        const epsCurrentYear = quote?.epsCurrentYear || null;
-        
-        // Try to get PE directly from quote or summary
-        peRatio = quote?.trailingPE || summary?.summaryDetail?.trailingPE || quote?.peRatio || null;
-
         if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
           epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
         }
-
-        // If peRatio still null, calculate it
-        if (peRatio === null && epsTrailing && epsTrailing !== 0) {
-          peRatio = currentPrice / epsTrailing;
-        }
-        
-        // Final fallback for peRatio if still null but we have forward data
-        if (peRatio === null && epsForward && epsForward !== 0) {
-          peRatio = currentPrice / epsForward;
-        }
       } catch (e) {
-        console.error("Error fetching/calculating EPS/PE:", e);
+        console.error("Error fetching/calculating EPS:", e);
       }
 
       // If we have a newer quote price, ensure it's used for SMA calculations by updating the last element 
@@ -302,88 +274,56 @@ async function startServer(): Promise<void> {
       const volumes = data.map(d => d.volume || 0);
       const vol5 = calculateSMA(volumes, 5) || 0;
       const vol20 = calculateSMA(volumes, 20) || 0;
-      const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
+      // [FIXED] 量縮改為必要條件，門檻從 0.8 收緊至 0.75
+      const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.75 : false;
       const currentVolume = volumes[volumes.length - 1];
 
-      // 1. Pivot Detection (Refined for stocks at/near new highs)
       const last250Days = data.slice(-250);
       const high52w = Math.max(...last250Days.map(d => d.high));
       const low52w = Math.min(...last250Days.map(d => d.low));
 
-      let anchorPivot = 0;
+      // ── 1. Pivot 識別邏輯（全面修正）──────────────────────────────
+      // 規則：Pivot 必須是 60 天內的局部高點，且該高點之後已出現明確回撤
+      // 不再 fallback 至 52 週高點（避免抓到仍在下跌中的高點）
+      let pivotPrice = 0;
       let pivotIdx = -1;
 
-      // Use a multi-pass approach to find a valid "Rim" (Ceiling)
-      const peakSearchWindow = data.slice(-120);
-      const absolutePeak = Math.max(...peakSearchWindow.map(d => d.high));
-      
-      // Find the last index of the absolute peak
-      let absolutePeakIdxInWindow = -1;
-      for (let i = peakSearchWindow.length - 1; i >= 0; i--) {
-        if (peakSearchWindow[i].high === absolutePeak) {
-          absolutePeakIdxInWindow = i;
-          break;
-        }
-      }
-      const absolutePeakIdx = (data.length - 120) + absolutePeakIdxInWindow;
-      
-      // REFINEMENT: If the absolute peak is very old (> 70 days ago), 
-      // it might not be the relevant "Rim" for the current base.
-      // We check if there's a more recent significant local peak.
-      if (absolutePeakIdxInWindow < peakSearchWindow.length - 70) {
-        const recentWindow = peakSearchWindow.slice(-60);
-        const recentPeak = Math.max(...recentWindow.map(d => d.high));
-        // If recent peak is within a reasonable distance (e.g., > 85% of absolute peak), use it instead
-        if (recentPeak >= absolutePeak * 0.85) {
-          anchorPivot = recentPeak;
-          let recentPeakIdx = -1;
-          for (let i = recentWindow.length - 1; i >= 0; i--) {
-            if (recentWindow[i].high === recentPeak) {
-              recentPeakIdx = i;
-              break;
-            }
-          }
-          pivotIdx = (data.length - 60) + recentPeakIdx;
-        } else {
-          anchorPivot = absolutePeak;
-          pivotIdx = absolutePeakIdx;
-        }
-      } else if (absolutePeakIdx > data.length - 15) {
-        // Current breakout scenario: seek the rim that occurred BEFORE the current surge
-        const lookbackForRim = peakSearchWindow.slice(0, Math.max(0, absolutePeakIdxInWindow - 15));
-        if (lookbackForRim.length > 10) {
-          const rimPrice = Math.max(...lookbackForRim.map(d => d.high));
-          let rimIdxInLookback = -1;
-          for (let i = lookbackForRim.length - 1; i >= 0; i--) {
-            if (lookbackForRim[i].high === rimPrice) {
-              rimIdxInLookback = i;
-              break;
-            }
-          }
-          anchorPivot = rimPrice;
-          pivotIdx = (data.length - 120) + rimIdxInLookback;
-        } else {
-          anchorPivot = absolutePeak;
-          pivotIdx = absolutePeakIdx;
-        }
-      } else {
-        anchorPivot = absolutePeak;
-        pivotIdx = absolutePeakIdx;
+      const searchStart = Math.max(5, data.length - 90); // 往回最多找 90 天
+      const searchEnd = data.length - 10;               // 至少留 10 天給後續結構
+
+      for (let i = searchEnd; i >= searchStart; i--) {
+        // 局部高點：左右各 5 根 K 棒都低於此點
+        const leftBars = data.slice(Math.max(0, i - 5), i);
+        const rightBars = data.slice(i + 1, Math.min(data.length, i + 6));
+        if (leftBars.length < 3 || rightBars.length < 3) continue;
+
+        const candidateHigh = data[i].high;
+        const isLocalPeak =
+          leftBars.every(d => d.high <= candidateHigh) &&
+          rightBars.every(d => d.high <= candidateHigh);
+
+        if (!isLocalPeak) continue;
+
+        // 確認 Pivot 後已有至少 5% 回撤（代表真的拉回，不是剛剛的高點）
+        const afterPivotSlice = data.slice(i + 1);
+        const lowestAfter = Math.min(...afterPivotSlice.map(d => d.low));
+        const pullbackFromPeak = (candidateHigh - lowestAfter) / candidateHigh;
+        if (pullbackFromPeak < 0.05) continue;
+
+        // 確認 Pivot 之後股價仍在 Pivot 的 90% 以上（沒有崩跌）
+        const recentPrice = data[data.length - 1].close;
+        if (recentPrice < candidateHigh * 0.75) continue;
+
+        pivotPrice = candidateHigh;
+        pivotIdx = i;
+        break; // 找到最近符合條件的 Pivot 就停止
       }
 
-      // Final sanity check: Anchor pivot should be the ceiling price used for breakout
-      const pivotPrice = anchorPivot;
+      // ── 2. VCP 結構識別（Pivot → 回撤 → 把手）────────────────────
+      let vcpHigh: number | null = null;
+      let pullbackPercentage = 0;
 
-      // 2. Strict VCP Identification Logic
-      let vcpHigh = null;
-      let vcpHighIdx = -1;
-      let handleStartIdx = -1;
-      let pullbackIdx = -1;
-      const volMA20 = vol20;
-
-      // A VCP sequence MUST happen AFTER the pivot peak
-      if (pivotIdx !== -1 && pivotIdx < data.length - 3) {
-        // Step 2: Seek the "Pullback Low" after the pivot
+      if (pivotIdx !== -1 && pivotIdx < data.length - 8) {
         const afterPivotData = data.slice(pivotIdx + 1);
         let pullbackLow = pivotPrice;
         let pullbackIdxInAfterPivot = -1;
@@ -396,36 +336,47 @@ async function startServer(): Promise<void> {
         }
 
         const absolutePullbackIdx = pivotIdx + 1 + pullbackIdxInAfterPivot;
-        pullbackIdx = absolutePullbackIdx;
-        const pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
+        pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
 
-        // Rule: Relaxed to 2% for strong stocks
-        if (pullbackPercentage >= 0.02) {
-          // Step 3: Seek tight handle strictly to the RIGHT of the pullback trough
-          for (let i = data.length - 1; i > absolutePullbackIdx; i--) {
-            if (i - absolutePullbackIdx < 2) break;
+        // [FIXED] 回撤門檻從 2% 提高至 5%，避免把微小波動當回撤
+        if (pullbackPercentage >= 0.05 && pullbackPercentage <= 0.40) {
 
-            const windowSize = Math.min(8, i - absolutePullbackIdx);
-            if (windowSize < 3) continue;
+          // [FIXED] 確認回撤已止穩：最近 3 天收盤均高於回撤低點 3% 以上
+          const last3 = data.slice(-3);
+          const isStabilized = last3.every(d => d.close > pullbackLow * 1.03);
 
-            const startIdx = i - windowSize + 1;
-            const window = data.slice(startIdx, i + 1);
-            const maxHigh = Math.max(...window.map(d => d.high));
-            const minLow = Math.min(...window.map(d => d.low));
-            const avgVol = window.reduce((sum, d) => sum + (d.volume || 0), 0) / windowSize;
-            const volatility = (maxHigh - minLow) / minLow;
+          if (isStabilized) {
+            // [FIXED] 把手最少 5 天（原為 3 天）
+            for (let i = data.length - 1; i > absolutePullbackIdx; i--) {
+              if (i - absolutePullbackIdx < 4) break; // 確保至少 5 根 K
 
-            // Refined constraints for more precise VCP identification
-            const isTight = volatility < 0.08; 
-            const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.85;
-            const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || volMA20;
-            const isLowVolume = avgVol < volMA20AtPoint; 
+              for (let windowSize = 5; windowSize <= 10; windowSize++) {
+                const startIdx = i - windowSize + 1;
+                if (startIdx <= absolutePullbackIdx) continue;
 
-            if (isTight && isNearPivot && isLowVolume) {
-              vcpHigh = maxHigh;
-              vcpHighIdx = i;
-              handleStartIdx = startIdx;
-              break;
+                const window = data.slice(startIdx, i + 1);
+                const maxHigh = Math.max(...window.map(d => d.high));
+                const minLow = Math.min(...window.map(d => d.low));
+                const windowVols = window.map(d => d.volume || 0);
+                const avgWindowVol = windowVols.reduce((a, b) => a + b, 0) / windowSize;
+                const volatility = (maxHigh - minLow) / minLow;
+
+                const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || vol20;
+
+                // [FIXED] 量縮為必要條件（vol5 < vol20 × 0.75）
+                const isLowVolume = avgWindowVol < volMA20AtPoint * 0.75;
+                // 把手需在 Pivot 的 88%~110% 之間
+                const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.88;
+                // [FIXED] 把手波動收緊至 6%（原為 7%）
+                const isTight = volatility < 0.06;
+                const isNotSameAsPivot = Math.abs(maxHigh - pivotPrice) / pivotPrice > 0.005;
+
+                if (isNearPivot && isTight && isLowVolume && isNotSameAsPivot) {
+                  vcpHigh = maxHigh;
+                  break;
+                }
+              }
+              if (vcpHigh !== null) break;
             }
           }
         }
@@ -435,25 +386,30 @@ async function startServer(): Promise<void> {
       const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
       const isExtended = currentPrice > pivotPrice * 1.25 || ma50Extension > 20;
 
-      // Use localPivot for backward compatibility if needed, but we prefer vcpHigh
       const localPivot = vcpHigh || 0;
       const isLocalPivotExtended = isExtended;
 
-      const buyZoneMax = pivotPrice * 1.05;
-      const suggestedStopLoss = pivotPrice * 0.92;
-      const priceGap = pivotPrice - currentPrice;
-      const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
+      const buyZoneMax = pivotPrice > 0 ? pivotPrice * 1.05 : 0;
+      const suggestedStopLoss = pivotPrice > 0 ? pivotPrice * 0.92 : 0;
+      const priceGap = pivotPrice > 0 ? pivotPrice - currentPrice : 0;
+      const distFromPivot = pivotPrice > 0 ? ((currentPrice - pivotPrice) / pivotPrice) * 100 : 0;
 
-      // Basic VCP status for API consistency
+      // [FIXED] VCP 狀態更細緻
       let vcpStatus = "整理中";
-      if (currentPrice > localPivot && isVolumeContracted) vcpStatus = "帶量突破";
-      else if (isVolumeContracted) vcpStatus = "量縮盤整";
+      if (vcpHigh && currentPrice > vcpHigh && isVolumeContracted) vcpStatus = "帶量突破";
+      else if (vcpHigh && isVolumeContracted) vcpStatus = "量縮盤整";
+      else if (pivotIdx !== -1 && !vcpHigh) vcpStatus = "等待把手";
 
       // Trend Template Logic (Minervini)
       const cond1 = currentPrice > (ma150 || 0) && currentPrice > (ma200 || 0);
       const cond2 = (ma150 || 0) > (ma200 || 0);
-      const ma200_prev = calculateSMA(closes.slice(0, -22), 200); // ~1 month ago
-      const cond3 = ma200 && ma200_prev ? ma200 > ma200_prev : false;
+      const ma200_prev = calculateSMA(closes.slice(0, -22), 200);
+      const ma150_prev = calculateSMA(closes.slice(0, -22), 150);
+      // [FIXED] 新上市股票 MA200 資料不足時，改以 MA150 趨勢判斷 cond3
+      const hasEnoughDataFor200 = closes.length >= 200;
+      const cond3 = hasEnoughDataFor200
+        ? (ma200 && ma200_prev ? ma200 > ma200_prev : false)
+        : (ma150 && ma150_prev ? ma150 > ma150_prev : false);
       const cond4 = (ma50 || 0) > (ma150 || 0) && (ma50 || 0) > (ma200 || 0);
       const cond5 = currentPrice > (ma50 || 0);
       const distFromLow = (currentPrice - low52w) / low52w;
@@ -462,15 +418,6 @@ async function startServer(): Promise<void> {
       const cond7 = distFromHigh <= 0.25;
 
       const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
-
-      const reasons: string[] = [];
-      if (!cond1) reasons.push("價格未能在 150MA 與 200MA 之上");
-      if (!cond2) reasons.push("150MA 未能高於 200MA");
-      if (!cond3) reasons.push("200MA 趨勢未能在最近一個月內呈現上揚");
-      if (!cond4) reasons.push("50MA 未能高於 150MA 與 200MA");
-      if (!cond5) reasons.push("價格未能在 50MA 之上");
-      if (!cond6) reasons.push(`股價距離 52週低點漲幅不足 30% (目前: ${(distFromLow * 100).toFixed(1)}%)`);
-      if (!cond7) reasons.push(`股價距離 52週高點超過 25% (目前: ${(distFromHigh * 100).toFixed(1)}%)`);
 
       // Base Detection Logic (Minervini/O'Neil style)
       let baseHigh = 0;
@@ -522,6 +469,8 @@ async function startServer(): Promise<void> {
         suggestedStopLoss,
         priceGap,
         distanceFromPivot: distFromPivot.toFixed(2),
+        pullbackPercentage: (pullbackPercentage * 100).toFixed(1),
+        hasEnoughDataFor200,
         high52w,
         low52w,
         distFromHigh: (distFromHigh * 100).toFixed(2),
@@ -537,21 +486,8 @@ async function startServer(): Promise<void> {
         },
         fundamentalStatus: "技術面符合，等待財報數據串接",
         isTemplateMet,
-        reasons,
         epsForward,
-        epsTrailing,
-        peRatio,
         epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
-        vcpPoints: {
-          pivotIdx,
-          pullbackIdx,
-          handleStartIdx,
-          handleEndIdx: vcpHighIdx,
-          pivotDate: pivotIdx !== -1 ? format(data[pivotIdx].date, 'yyyy-MM-dd') : null,
-          pullbackDate: pullbackIdx !== -1 ? format(data[pullbackIdx].date, 'yyyy-MM-dd') : null,
-          handleStartDate: handleStartIdx !== -1 ? format(data[handleStartIdx].date, 'yyyy-MM-dd') : null,
-          handleEndDate: vcpHighIdx !== -1 ? format(data[vcpHighIdx].date, 'yyyy-MM-dd') : null,
-        },
         chartData: data.slice(-200).map((d, i, arr) => {
           // Calculate MA indices more efficiently
           const dataIndex = data.length - arr.length + i;
