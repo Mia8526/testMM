@@ -282,14 +282,17 @@ async function startServer(): Promise<void> {
       const high52w = Math.max(...last250Days.map(d => d.high));
       const low52w = Math.min(...last250Days.map(d => d.low));
 
-      // ── 1. Pivot 識別邏輯（全面修正）──────────────────────────────
-      // 規則：Pivot 必須是 60 天內的局部高點，且該高點之後已出現明確回撤
-      // 不再 fallback 至 52 週高點（避免抓到仍在下跌中的高點）
+      // ── 1. Pivot 識別邏輯 ─────────────────────────────────────────
+      // 規則：
+      //   a) 90 天內的局部高點（左右各 5 根都更低）
+      //   b) 必須是「上漲突破後」的高點：左側 20 天均價需低於候選 Pivot
+      //   c) Pivot 後已有 ≥5% 回撤，且現價 > Pivot × 75%
+      //   d) searchEnd = data.length - 15，確保有足夠空間形成回撤 + 把手
       let pivotPrice = 0;
       let pivotIdx = -1;
 
-      const searchStart = Math.max(5, data.length - 90); // 往回最多找 90 天
-      const searchEnd = data.length - 10;               // 至少留 10 天給後續結構
+      const searchStart = Math.max(25, data.length - 90); // 往回最多找 90 天
+      const searchEnd = data.length - 15;                 // [FIXED] 至少留 15 天給回撤+把手
 
       for (let i = searchEnd; i >= searchStart; i--) {
         // 局部高點：左右各 5 根 K 棒都低於此點
@@ -304,19 +307,26 @@ async function startServer(): Promise<void> {
 
         if (!isLocalPeak) continue;
 
-        // 確認 Pivot 後已有至少 5% 回撤（代表真的拉回，不是剛剛的高點）
+        // [FIXED] 確認是「上漲突破後」的高點：左側 20 天均價需低於 Pivot
+        // 排除下跌趨勢中的反彈高點（例如 8114 從高點跌落途中的局部反彈）
+        const left20 = data.slice(Math.max(0, i - 20), i);
+        const left20AvgClose = left20.reduce((s, d) => s + d.close, 0) / left20.length;
+        if (left20AvgClose >= candidateHigh * 0.97) continue; // 均價需低於 Pivot 3% 以上
+
+        // 確認 Pivot 後已有至少 5% 回撤
         const afterPivotSlice = data.slice(i + 1);
+        if (afterPivotSlice.length === 0) continue;
         const lowestAfter = Math.min(...afterPivotSlice.map(d => d.low));
         const pullbackFromPeak = (candidateHigh - lowestAfter) / candidateHigh;
         if (pullbackFromPeak < 0.05) continue;
 
-        // 確認 Pivot 之後股價仍在 Pivot 的 90% 以上（沒有崩跌）
+        // 確認現價不低於 Pivot 的 75%（沒有崩跌）
         const recentPrice = data[data.length - 1].close;
         if (recentPrice < candidateHigh * 0.75) continue;
 
         pivotPrice = candidateHigh;
         pivotIdx = i;
-        break; // 找到最近符合條件的 Pivot 就停止
+        break;
       }
 
       // ── 2. VCP 結構識別（Pivot → 回撤 → 把手）────────────────────
@@ -338,12 +348,13 @@ async function startServer(): Promise<void> {
         const absolutePullbackIdx = pivotIdx + 1 + pullbackIdxInAfterPivot;
         pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
 
-        // [FIXED] 回撤門檻從 2% 提高至 5%，避免把微小波動當回撤
         if (pullbackPercentage >= 0.05 && pullbackPercentage <= 0.40) {
 
-          // [FIXED] 確認回撤已止穩：最近 3 天收盤均高於回撤低點 3% 以上
-          const last3 = data.slice(-3);
-          const isStabilized = last3.every(d => d.close > pullbackLow * 1.03);
+          // [FIXED] isStabilized：回撤低點「之後」至少有 3 天收盤 > 低點 × 1.03
+          // 避免用全局最後 3 天（可能仍在回撤中）
+          const afterTroughData = data.slice(absolutePullbackIdx + 1);
+          const stabilizedDays = afterTroughData.filter(d => d.close > pullbackLow * 1.03).length;
+          const isStabilized = stabilizedDays >= 3;
 
           if (isStabilized) {
             // [FIXED] 把手最少 5 天（原為 3 天）
@@ -404,18 +415,19 @@ async function startServer(): Promise<void> {
       const cond1 = currentPrice > (ma150 || 0) && currentPrice > (ma200 || 0);
       const cond2 = (ma150 || 0) > (ma200 || 0);
       const ma200_prev = calculateSMA(closes.slice(0, -22), 200);
-      const ma150_prev = calculateSMA(closes.slice(0, -22), 150);
-      // [FIXED] 新上市股票 MA200 資料不足時，改以 MA150 趨勢判斷 cond3
+      // [FIXED] MA200 資料不足（新上市股票 < 200 天）時直接設 cond3 = true
+      // 理由：新上市股本來就沒有 MA200，不應被此條件懲罰
       const hasEnoughDataFor200 = closes.length >= 200;
-      const cond3 = hasEnoughDataFor200
-        ? (ma200 && ma200_prev ? ma200 > ma200_prev : false)
-        : (ma150 && ma150_prev ? ma150 > ma150_prev : false);
+      const cond3 = !hasEnoughDataFor200
+        ? true
+        : (ma200 && ma200_prev ? ma200 > ma200_prev : false);
       const cond4 = (ma50 || 0) > (ma150 || 0) && (ma50 || 0) > (ma200 || 0);
       const cond5 = currentPrice > (ma50 || 0);
       const distFromLow = (currentPrice - low52w) / low52w;
       const cond6 = distFromLow >= 0.30;
       const distFromHigh = (high52w - currentPrice) / high52w;
-      const cond7 = distFromHigh <= 0.25;
+      // [FIXED] 從 25% 放寬至 30%，強勢股急漲後整理距高點 25~30% 屬正常
+      const cond7 = distFromHigh <= 0.30;
 
       const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
 
