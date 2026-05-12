@@ -24,9 +24,7 @@ import {
   Tooltip, 
   ResponsiveContainer,
   Legend,
-  ReferenceLine,
-  ReferenceArea,
-  ReferenceDot
+  ReferenceLine
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -77,19 +75,7 @@ interface StockData {
   fundamentalStatus: string;
   isTemplateMet: boolean;
   epsForward: number | null;
-  epsTrailing: number | null;
-  peRatio: number | null;
   epsGrowth: string | null;
-  vcpPoints: {
-    pivotIdx: number;
-    pullbackIdx: number;
-    handleStartIdx: number;
-    handleEndIdx: number;
-    pivotDate: string | null;
-    pullbackDate: string | null;
-    handleStartDate: string | null;
-    handleEndDate: string | null;
-  };
   chartData: any[];
 }
 
@@ -100,7 +86,6 @@ interface WatchlistItem {
   shortName: string;
   price: number;
   currency: string;
-  peRatio: number | null;
   pivotPrice: number;
   suggestedStopLoss: number;
   ma50Extension: string;
@@ -149,7 +134,6 @@ export default function App() {
       shortName: data.shortName,
       price: data.currentPrice,
       currency: data.currency,
-      peRatio: data.peRatio,
       pivotPrice: data.pivotPrice,
       suggestedStopLoss: data.suggestedStopLoss,
       ma50Extension: data.ma50Extension,
@@ -180,13 +164,12 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "本益比", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
-      item.peRatio !== null ? `${item.peRatio.toFixed(1)}x` : "-",
       item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
       item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-",
       `${item.ma50Extension}%`,
@@ -287,9 +270,6 @@ export default function App() {
     };
   };
 
-
-  const Area = ReferenceArea as any;
-  const Dot = ReferenceDot as any;
 
   return (
     <div className="flex min-h-screen bg-[#f1f5f9]">
@@ -459,7 +439,6 @@ export default function App() {
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">本益比</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">建議停損</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
@@ -476,15 +455,6 @@ export default function App() {
                             <div className="text-xs text-slate-400">{item.symbol}</div>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
-                          <td className="px-6 py-4">
-                            {item.peRatio !== null ? (
-                              <span className="text-sm font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                                {item.peRatio.toFixed(1)}x
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-300">-</span>
-                            )}
-                          </td>
                           <td className="px-6 py-4 text-sm font-bold text-slate-900">
                             {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
                           </td>
@@ -621,7 +591,7 @@ export default function App() {
                         <div className="text-3xl font-bold text-[#0f172a]">
                           <span className="text-xs text-slate-400 font-medium block mb-1">收盤價 (Last Close)</span>
                           <div className="flex items-center gap-2">
-                            {data.currency} {data.currentPrice.toFixed(2)}
+                            {data.currency} {data.currentPrice?.toFixed(2) ?? '-'}
                             {data.baseType !== 'None' && (
                               <span className={cn(
                                 "text-[12px] px-2 py-1 rounded-md font-bold whitespace-nowrap",
@@ -632,38 +602,22 @@ export default function App() {
                             )}
                           </div>
                           
-                          {/* PE 與 預估 EPS 與成長率 */}
-                          {(data.epsForward !== null || data.peRatio !== null) && (
-                            <div className="mt-2 flex flex-col items-end gap-1.5">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">財務估值 (Fundamentals)</span>
-                              <div className="flex gap-2">
-                                {data.peRatio !== null && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-[#f1f5f9] text-[#475569] border border-[#e2e8f0] shadow-sm">
-                                    本益比 (TTM): {data.peRatio.toFixed(1)}x
+                          {/* 明年預估 EPS 與成長率 */}
+                          {data.epsForward != null && (
+                            <div className="mt-2 flex justify-end">
+                              <span className={cn(
+                                "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm transition-all duration-300",
+                                data.epsGrowth && parseFloat(data.epsGrowth) >= 20 
+                                  ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10" 
+                                  : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
+                              )}>
+                                預估 EPS: ${data.epsForward?.toFixed(2) ?? '-'}
+                                {data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
+                                  <span className="ml-1.5 opacity-90">
+                                    (YoY +{data.epsGrowth}%)
                                   </span>
                                 )}
-                                {data.epsForward !== null && (
-                                  <span className={cn(
-                                    "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm transition-all duration-300",
-                                    data.epsGrowth && parseFloat(data.epsGrowth) >= 20 
-                                      ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10" 
-                                      : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
-                                  )}>
-                                    預估 EPS: ${data.epsForward.toFixed(2)}
-                                    {data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
-                                      <span className="ml-1.5 opacity-90">
-                                        (YoY +{data.epsGrowth}%)
-                                      </span>
-                                    )}
-                                  </span>
-                                )}
-                              </div>
-                              {/* 預估本益比 (如果有的話) */}
-                              {data.epsForward !== null && data.currentPrice && (
-                                <span className="text-[10px] text-slate-400 font-medium">
-                                  預估本益比: {(data.currentPrice / data.epsForward).toFixed(1)}x
-                                </span>
-                              )}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -712,7 +666,7 @@ export default function App() {
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
                           <span className="text-sm text-slate-500 font-medium whitespace-nowrap">突破目標價</span>
                           <span className="text-lg sm:text-xl font-black text-blue-600">
-                            NT$ {data.pivotPrice.toFixed(2)}
+                            NT$ {data.pivotPrice > 0 ? data.pivotPrice.toFixed(2) : '-'}
                           </span>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0 py-4 border-y border-slate-50">
@@ -723,13 +677,13 @@ export default function App() {
                             </span>
                           ) : (
                             <span className="text-lg sm:text-xl font-black text-emerald-600">
-                              NT$ {data.pivotPrice.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05).toFixed(2)}
+                              NT$ {data.pivotPrice?.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05)?.toFixed(2)}
                             </span>
                           )}
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
                            <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損 (-8%)</span>
-                           <span className="text-lg sm:text-xl font-black text-red-700">NT$ {(data.pivotPrice * 0.92).toFixed(2)}</span>
+                           <span className="text-lg sm:text-xl font-black text-red-700">NT$ {(data.pivotPrice * 0.92)?.toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -766,42 +720,6 @@ export default function App() {
                             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                             formatter={(value: any) => typeof value === 'number' ? value.toFixed(2) : value}
                           />
-                          
-                          {/* VCP Components Visualization */}
-                          {data.vcpPoints.pivotDate && data.chartData.some(d => d.date === data.vcpPoints.pivotDate) && (
-                            <Dot 
-                              x={data.vcpPoints.pivotDate} 
-                              y={data.pivotPrice} 
-                              r={4} 
-                              fill="#f43f5e" 
-                              stroke="#fff" 
-                              strokeWidth={2}
-                              label={{ position: 'top', value: `Pivot (${data.vcpPoints.pivotDate})`, fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
-                            />
-                          )}
-                          
-                          {data.vcpPoints.pullbackDate && data.chartData.some(d => d.date === data.vcpPoints.pullbackDate) && (
-                            <Dot 
-                              x={data.vcpPoints.pullbackDate} 
-                              y={data.chartData.find(d => d.date === data.vcpPoints.pullbackDate)?.price || 0} 
-                              r={4} 
-                              fill="#64748b" 
-                              stroke="#fff" 
-                              strokeWidth={2}
-                              label={{ position: 'bottom', value: `Pullback (${data.vcpPoints.pullbackDate})`, fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} 
-                            />
-                          )}
-
-                          {data.vcpPoints.handleStartDate && data.vcpPoints.handleEndDate && (
-                            <Area 
-                              x1={data.vcpPoints.handleStartDate} 
-                              x2={data.vcpPoints.handleEndDate} 
-                              fill="#3b82f6" 
-                              fillOpacity={0.15} 
-                              label={{ position: 'top', value: 'VCP Handle', fill: '#3b82f6', fontSize: 10, fontWeight: 'bold' }}
-                            />
-                          )}
-
                           {data.pivotPrice > 0 && (
                             <ReferenceLine 
                               y={data.pivotPrice} 
@@ -809,26 +727,27 @@ export default function App() {
                               strokeDasharray="3 3" 
                               label={{ 
                                 position: 'insideRight', 
-                                value: `Breakout Ceiling (${data.pivotPrice.toFixed(2)})`, 
+                                value: `PIVOT ${data.baseType !== 'None' ? `(${data.baseType} Base)` : ''} (${data.pivotPrice?.toFixed(2) ?? 0})`, 
                                 fill: '#f43f5e', 
                                 fontSize: 9, 
                                 fontWeight: 'bold' 
                               }} 
                             />
                           )}
-                          
-                          {data.vcpStatus === "帶量突破" && (
-                             <Dot 
-                               x={data.chartData[data.chartData.length - 1].date} 
-                               y={data.chartData[data.chartData.length - 1].price} 
-                               r={6} 
-                               fill="#10b981" 
-                               stroke="#fff" 
-                               strokeWidth={3}
-                               label={{ position: 'top', value: '🚀 BREAKOUT', fill: '#10b981', fontSize: 11, fontWeight: 'black' }} 
+                          {data.vcpHigh && !data.isExtended && (
+                            <ReferenceLine 
+                               y={data.vcpHigh} 
+                               stroke="#7dd3fc" 
+                               strokeDasharray="3 3" 
+                               label={{ 
+                                 position: 'insideLeft', 
+                                 value: `VCP ${data.isVolumeContracted ? '(Tight)' : ''} (${data.vcpHigh?.toFixed(2) ?? ''})`, 
+                                 fill: '#0ea5e9', 
+                                 fontSize: 9, 
+                                 fontWeight: 'bold' 
+                               }} 
                              />
                           )}
-
                           <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
                           <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
                           <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" strokeDasharray="4 4" />
