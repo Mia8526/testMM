@@ -267,57 +267,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const volumes = data.map(d => d.volume || 0);
     const vol5 = calculateSMA(volumes, 5) || 0;
     const vol20 = calculateSMA(volumes, 20) || 0;
-    const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.75 : false;
+    const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.8 : false;
     const currentVolume = volumes[volumes.length - 1];
 
-    // ── Pivot 識別邏輯（全面修正版）──────────────────────────────
+    // 1. Static Anchor Pivot Logic (Searching back 60 days for a stable base)
     const last250Days = data.slice(-250);
     const high52w = Math.max(...last250Days.map(d => d.high));
     const low52w = Math.min(...last250Days.map(d => d.low));
 
-    let pivotPrice = 0;
+    let anchorPivot = 0;
     let pivotIdx = -1;
-
-    const searchStart = Math.max(25, data.length - 90);
-    const searchEnd = data.length - 15; // 留 15 天給回撤+把手
-
-    for (let i = searchEnd; i >= searchStart; i--) {
-      const leftBars = data.slice(Math.max(0, i - 5), i);
-      const rightBars = data.slice(i + 1, Math.min(data.length, i + 6));
-      if (leftBars.length < 3 || rightBars.length < 3) continue;
-
-      const candidateHigh = data[i].high;
-      const isLocalPeak =
-        leftBars.every(d => d.high <= candidateHigh) &&
-        rightBars.every(d => d.high <= candidateHigh);
-      if (!isLocalPeak) continue;
-
-      // 確認是上漲突破後高點：左側 20 天均價需低於 Pivot 3%
-      const left20 = data.slice(Math.max(0, i - 20), i);
-      const left20AvgClose = left20.reduce((s, d) => s + d.close, 0) / left20.length;
-      if (left20AvgClose >= candidateHigh * 0.97) continue;
-
-      // 確認後續有 ≥5% 回撤
-      const afterPivotSlice = data.slice(i + 1);
-      if (afterPivotSlice.length === 0) continue;
-      const lowestAfter = Math.min(...afterPivotSlice.map(d => d.low));
-      const pullbackFromPeak = (candidateHigh - lowestAfter) / candidateHigh;
-      if (pullbackFromPeak < 0.05) continue;
-
-      // 現價不低於 Pivot 的 75%
-      const recentPrice = data[data.length - 1].close;
-      if (recentPrice < candidateHigh * 0.75) continue;
-
-      pivotPrice = candidateHigh;
-      pivotIdx = i;
-      break;
+    // Search backwards from current to 60 days ago to find the most recent consolidation base
+    for (let i = data.length - 1; i >= Math.max(0, data.length - 60); i--) {
+      if (i < 4) continue;
+      const window = data.slice(i - 4, i + 1);
+      const volatility = (Math.max(...window.map(d => d.high)) - Math.min(...window.map(d => d.low))) / Math.min(...window.map(d => d.low));
+      if (volatility < 0.08) {
+        anchorPivot = Math.max(...window.map(d => d.close));
+        const foundIdx = window.findIndex(d => d.close === anchorPivot);
+        pivotIdx = i - 4 + foundIdx;
+        break;
+      }
     }
 
-    // ── VCP 結構識別（Pivot → 回撤 → 把手）────────────────────
-    let vcpHigh = null;
-    let pullbackPercentage = 0;
+    // If no consolidation found in 60 days, fallback to 52-week high close
+    const pivotPrice = anchorPivot > 0 ? anchorPivot : Math.max(...last250Days.map(d => d.close));
+    if (pivotIdx === -1) {
+      // Find the LAST index of the pivotPrice to ensure we are looking at the most recent peak
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i].close === pivotPrice || data[i].high === pivotPrice) {
+          pivotIdx = i;
+          break;
+        }
+      }
+    }
 
-    if (pivotIdx !== -1 && pivotIdx < data.length - 8) {
+    // 2. Strict VCP Identification Logic (Linear Structure: Pivot -> Pullback -> Handle)
+    let vcpHigh = null;
+    const volMA20 = vol20;
+
+    if (pivotIdx !== -1 && pivotIdx < data.length - 3) { // Lowered to catch recent trends
+      // Step 2: Mandatory "Pullback" check after Pivot
       const afterPivotData = data.slice(pivotIdx + 1);
       let pullbackLow = pivotPrice;
       let pullbackIdxInAfterPivot = -1;
@@ -330,42 +320,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const absolutePullbackIdx = pivotIdx + 1 + pullbackIdxInAfterPivot;
-      pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
+      const pullbackPercentage = (pivotPrice - pullbackLow) / pivotPrice;
 
-      if (pullbackPercentage >= 0.05 && pullbackPercentage <= 0.40) {
-        // 回撤後至少 3 天收盤 > 低點 × 1.03（止穩確認）
-        const afterTroughData = data.slice(absolutePullbackIdx + 1);
-        const stabilizedDays = afterTroughData.filter(d => d.close > pullbackLow * 1.03).length;
-        const isStabilized = stabilizedDays >= 3;
+      // Rule: Must have at least 2% pullback from Pivot to qualify (Relaxed for strong stocks)
+      if (pullbackPercentage >= 0.02) {
+        // Step 3: Seek tight handle strictly to the RIGHT of the pullback trough
+        for (let i = data.length - 1; i > absolutePullbackIdx; i--) {
+          if (i - absolutePullbackIdx < 2) break; // Need at least 3 days after trough
 
-        if (isStabilized) {
-          for (let i = data.length - 1; i > absolutePullbackIdx; i--) {
-            if (i - absolutePullbackIdx < 4) break;
+          for (let windowSize = 3; windowSize <= 5; windowSize++) {
+            const startIdx = i - windowSize + 1;
+            if (startIdx <= absolutePullbackIdx) continue;
 
-            for (let windowSize = 5; windowSize <= 10; windowSize++) {
-              const startIdx = i - windowSize + 1;
-              if (startIdx <= absolutePullbackIdx) continue;
+            const window = data.slice(startIdx, i + 1);
+            const windowHighs = window.map(d => d.high);
+            const windowLows = window.map(d => d.low);
+            const windowVols = window.map(d => d.volume || 0);
 
-              const window = data.slice(startIdx, i + 1);
-              const maxHigh = Math.max(...window.map(d => d.high));
-              const minLow = Math.min(...window.map(d => d.low));
-              const windowVols = window.map(d => d.volume || 0);
-              const avgWindowVol = windowVols.reduce((a, b) => a + b, 0) / windowSize;
-              const volatility = (maxHigh - minLow) / minLow;
-              const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || vol20;
+            const maxHigh = Math.max(...windowHighs);
+            const minLow = Math.min(...windowLows);
+            const avgWindowVol = windowVols.reduce((a, b) => a + b, 0) / windowSize;
+            const volatility = (maxHigh - minLow) / minLow;
 
-              const isLowVolume = avgWindowVol < volMA20AtPoint * 0.75;
-              const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.88;
-              const isTight = volatility < 0.06;
-              const isNotSameAsPivot = Math.abs(maxHigh - pivotPrice) / pivotPrice > 0.005;
+            // Calculate historical volume average at this point in time
+            const volMA20AtPoint = calculateSMA(volumes.slice(0, i + 1), 20) || volMA20;
+            // Requirement: Volatility < 7% AND Volume Dry-out (below MA20)
+            const isLowVolume = avgWindowVol < volMA20AtPoint;
 
-              if (isNearPivot && isTight && isLowVolume && isNotSameAsPivot) {
-                vcpHigh = maxHigh;
-                break;
-              }
+            // VCP Handle Conditions
+            const isNearPivot = maxHigh <= pivotPrice * 1.10 && minLow >= pivotPrice * 0.88;
+            const isTight = volatility < 0.07;
+            
+            // Step 4: Strict price separation (< 0.5% diff is prohibited)
+            const isNotSameAsPivot = Math.abs(maxHigh - pivotPrice) / pivotPrice > 0.005;
+
+            if (isNearPivot && isTight && isLowVolume && isNotSameAsPivot) {
+              vcpHigh = maxHigh;
+              break;
             }
-            if (vcpHigh !== null) break;
           }
+          if (vcpHigh !== null) break;
         }
       }
     }
@@ -385,24 +379,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Basic VCP status for API consistency
     let vcpStatus = "整理中";
-    if (vcpHigh && currentPrice > vcpHigh && isVolumeContracted) vcpStatus = "帶量突破";
-    else if (vcpHigh && isVolumeContracted) vcpStatus = "量縮盤整";
-    else if (pivotIdx !== -1 && !vcpHigh) vcpStatus = "等待把手";
+    if (currentPrice > localPivot && isVolumeContracted) vcpStatus = "帶量突破";
+    else if (isVolumeContracted) vcpStatus = "量縮盤整";
 
     // Trend Template Logic (Minervini)
     const cond1 = currentPrice > (ma150 || 0) && currentPrice > (ma200 || 0);
     const cond2 = (ma150 || 0) > (ma200 || 0);
     const ma200_prev = calculateSMA(closes.slice(0, -22), 200); // ~1 month ago
-    // [FIXED] MA200 不足（新上市<200天）時直接設 cond3 = true
-    const hasEnoughDataFor200 = closes.length >= 200;
-    const cond3 = !hasEnoughDataFor200 ? true : (ma200 && ma200_prev ? ma200 > ma200_prev : false);
+    const cond3 = ma200 && ma200_prev ? ma200 > ma200_prev : false;
     const cond4 = (ma50 || 0) > (ma150 || 0) && (ma50 || 0) > (ma200 || 0);
     const cond5 = currentPrice > (ma50 || 0);
     const distFromLow = (currentPrice - low52w) / low52w;
     const cond6 = distFromLow >= 0.30;
     const distFromHigh = (high52w - currentPrice) / high52w;
-    // [FIXED] cond7 門檻從 25% 放寬至 30%
-    const cond7 = distFromHigh <= 0.30;
+    const cond7 = distFromHigh <= 0.25;
 
     const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
 
@@ -456,7 +446,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       suggestedStopLoss,
       priceGap,
       distanceFromPivot: distFromPivot.toFixed(2),
-      pullbackPercentage: (pullbackPercentage * 100).toFixed(1),
       high52w,
       low52w,
       distFromHigh: (distFromHigh * 100).toFixed(2),
@@ -472,17 +461,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       fundamentalStatus: "技術面符合，等待財報數據串接",
       isTemplateMet,
-      hasEnoughDataFor200,
-      reasons: [
-        ...(!cond1 ? ["股價未高於 MA150 與 MA200"] : []),
-        ...(!cond2 ? ["150MA 未能高於 200MA"] : []),
-        ...(!cond3 && hasEnoughDataFor200 ? ["200MA 趨勢未能在最近一個月內呈現上揚"] : []),
-        ...(!cond4 ? ["50MA 未能高於 150MA 與 200MA"] : []),
-        ...(!cond5 ? ["股價未高於 50MA"] : []),
-        ...(!cond6 ? ["股價距離 52週低點未達 30%"] : []),
-        // [FIXED] 門檻從 25% 更新為 30%
-        ...(!cond7 ? [\`股價距離 52週高點超過 30% (目前: \${(distFromHigh * 100).toFixed(1)}%)\`] : []),
-      ],
       epsForward,
       epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
       chartData: data.slice(-200).map((d, i, arr) => {
