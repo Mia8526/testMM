@@ -74,8 +74,13 @@ interface StockData {
   };
   fundamentalStatus: string;
   isTemplateMet: boolean;
+  hasEnoughDataFor200: boolean;
+  reasons: string[];
   epsForward: number | null;
   epsGrowth: string | null;
+  trailingEps: number | null;
+  trailingPE: number | null;
+  recentEpsGrowth: string | null;
   chartData: any[];
 }
 
@@ -602,22 +607,45 @@ export default function App() {
                             )}
                           </div>
                           
-                          {/* 明年預估 EPS 與成長率 */}
-                          {data.epsForward != null && (
-                            <div className="mt-2 flex justify-end">
+                          {/* EPS & 本益比區塊 */}
+                          {(data.trailingPE != null || data.epsForward != null || data.recentEpsGrowth != null) && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 justify-end">
+
+                              {/* 本益比 */}
+                              {data.trailingPE != null && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm bg-[#f8fafc] text-[#334155] border-[#e2e8f0]">
+                                  本益比 {data.trailingPE.toFixed(1)}x
+                                </span>
+                              )}
+
+                              {/* 近四季實際 EPS 成長率 */}
+                              {data.recentEpsGrowth != null && (
+                                <span className={cn(
+                                  "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
+                                  parseFloat(data.recentEpsGrowth) >= 20
+                                    ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
+                                    : parseFloat(data.recentEpsGrowth) < 0
+                                    ? "bg-[#fef2f2] text-[#dc2626] border-[#fca5a5]"
+                                    : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
+                                )}>
+                                  實際成長 {parseFloat(data.recentEpsGrowth) >= 0 ? '+' : ''}{data.recentEpsGrowth}%
+                                </span>
+                              )}
+
+                              {/* 預估 EPS（分析師預估，找不到顯示—） */}
                               <span className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm transition-all duration-300",
-                                data.epsGrowth && parseFloat(data.epsGrowth) >= 20 
-                                  ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10" 
+                                "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
+                                data.epsForward != null && data.epsGrowth && parseFloat(data.epsGrowth) >= 20
+                                  ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
                                   : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
                               )}>
-                                預估 EPS: ${data.epsForward?.toFixed(2) ?? '-'}
-                                {data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
-                                  <span className="ml-1.5 opacity-90">
-                                    (YoY +{data.epsGrowth}%)
-                                  </span>
+                                預估EPS {data.epsForward != null ? `$${data.epsForward.toFixed(2)}` : '—'}
+                                {data.epsForward != null && data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
+                                  <span className="ml-1 opacity-90">(+{data.epsGrowth}%)</span>
                                 )}
                               </span>
+
+                            </div>
                             </div>
                           )}
                         </div>
