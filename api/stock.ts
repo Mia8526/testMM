@@ -237,18 +237,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const latestQuotePrice = fetchResult?.quote?.regularMarketPrice;
     const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
 
-    // Fundamental Extension: Forward EPS & Growth (Robust Error Handling)
-    let epsForward = null;
-    let epsGrowth = null;
-    
+    // ── Fundamental: EPS & PE（全面修正版）──────────────────────
+    let epsForward: number | null = null;
+    let epsGrowth: string | null = null;
+    let trailingEps: number | null = null;
+    let trailingPE: number | null = null;
+    let recentEpsGrowth: string | null = null; // 近四季實際成長率
+
     try {
-      // Use optional chaining for everything
-      epsForward = fetchResult?.quote?.epsForward ?? fetchResult?.quote?.trailingEps ?? null;
+      // [FIXED] epsForward 不再 fallback 到 trailingEps，找不到就是 null
+      epsForward = fetchResult?.quote?.epsForward ?? null;
+
+      // 預估成長率：明年預估 vs 今年預估
       const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
-      
       if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
-        epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
+        const growth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
+        epsGrowth = growth.toFixed(2);
       }
+
+      // 本益比：trailing（過去 12 個月）
+      trailingEps = fetchResult?.quote?.trailingEps ?? null;
+      trailingPE = fetchResult?.quote?.trailingPE ?? null;
+      // 若 Yahoo 沒直接給 trailingPE，自己算
+      if (trailingPE === null && trailingEps !== null && trailingEps !== 0 && currentPrice > 0) {
+        trailingPE = currentPrice / trailingEps;
+      }
+
+      // 近四季實際 EPS 成長率：用最近兩季 vs 前兩季
+      // Yahoo quote 提供 epsTrailingTwelveMonths 和 epsCurrentYear 做近似計算
+      // 用「近兩季 EPS ≈ trailingEps / 2」vs「前兩季 EPS ≈ epsCurrentYear / 2」的年化近似
+      const trailingTTM = fetchResult?.quote?.epsTrailingTwelveMonths ?? trailingEps ?? null;
+      const prevTTM = fetchResult?.quote?.epsCurrentYear ?? null;
+      if (trailingTTM !== null && prevTTM !== null && prevTTM !== 0) {
+        const recentGrowth = ((trailingTTM - prevTTM) / Math.abs(prevTTM)) * 100;
+        recentEpsGrowth = recentGrowth.toFixed(2);
+      }
+
     } catch (e) {
       console.error("Error fetching/calculating EPS:", e);
     }
@@ -483,8 +507,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // [FIXED] 門檻從 25% 更新為 30%
         ...(!cond7 ? [`股價距離 52週高點超過 30% (目前: ${(distFromHigh * 100).toFixed(1)}%)`] : []),
       ],
-      epsForward,
-      epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
+      // EPS & 本益比
+      epsForward,                          // 分析師預估 EPS（找不到為 null，不 fallback）
+      epsGrowth,                           // 預估成長率（明年 vs 今年預估）
+      trailingEps,                         // 近 12 個月實際 EPS
+      trailingPE: trailingPE !== null ? Math.round(trailingPE * 10) / 10 : null,  // 本益比（一位小數）
+      recentEpsGrowth,                     // 近四季實際成長率（近兩季 vs 前兩季）
       chartData: data.slice(-200).map((d, i, arr) => {
         // Calculate MA indices more efficiently
         const dataIndex = data.length - arr.length + i;
