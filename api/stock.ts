@@ -256,21 +256,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // 本益比：trailing（過去 12 個月）
-      trailingEps = fetchResult?.quote?.trailingEps ?? null;
       trailingPE = fetchResult?.quote?.trailingPE ?? null;
-      // 若 Yahoo 沒直接給 trailingPE，自己算
-      if (trailingPE === null && trailingEps !== null && trailingEps !== 0 && currentPrice > 0) {
-        trailingPE = currentPrice / trailingEps;
+      // [FIXED] trailingEps：從 trailingPE 反推，Yahoo 台股通常不直接給 trailingEps
+      trailingEps = fetchResult?.quote?.trailingEps ?? null;
+      if (trailingEps === null && trailingPE !== null && trailingPE !== 0 && currentPrice > 0) {
+        trailingEps = currentPrice / trailingPE;
       }
 
-      // 近四季實際 EPS 成長率：用最近兩季 vs 前兩季
-      // Yahoo quote 提供 epsTrailingTwelveMonths 和 epsCurrentYear 做近似計算
-      // 用「近兩季 EPS ≈ trailingEps / 2」vs「前兩季 EPS ≈ epsCurrentYear / 2」的年化近似
-      const trailingTTM = fetchResult?.quote?.epsTrailingTwelveMonths ?? trailingEps ?? null;
-      const prevTTM = fetchResult?.quote?.epsCurrentYear ?? null;
-      if (trailingTTM !== null && prevTTM !== null && prevTTM !== 0) {
-        const recentGrowth = ((trailingTTM - prevTTM) / Math.abs(prevTTM)) * 100;
-        recentEpsGrowth = recentGrowth.toFixed(2);
+      // [FIXED] 近四季實際 EPS 成長率
+      // 正確做法：近 12 個月實際 EPS（trailingEps）vs 上一年度 EPS（epsForward 的前一年）
+      // Yahoo 有 earningsGrowth（YoY 盈餘成長率），直接用這個最準
+      const earningsGrowth = fetchResult?.quote?.earningsGrowth ?? null;
+      if (earningsGrowth !== null) {
+        // earningsGrowth 是小數，例如 0.238 代表 +23.8%
+        recentEpsGrowth = (earningsGrowth * 100).toFixed(2);
+      } else if (trailingEps !== null && epsForward !== null && epsForward !== 0) {
+        // fallback：用 trailingEps vs epsForward 的差距估算（不準但聊勝於無）
+        // 不顯示，避免誤導
+        recentEpsGrowth = null;
       }
 
     } catch (e) {
