@@ -46,6 +46,7 @@ interface StockData {
   ma50Extension: string;
   extensionFrom50MA: string;
   isVolumeContracted: boolean;
+  isMomentumStock: boolean;
   localPivot: number;
   vcpHigh: number | null;
   isExtended: boolean;
@@ -588,8 +589,13 @@ export default function App() {
                             觀察
                           </button>
                           {parseFloat(data.ma50Extension) > 25 && (
-                            <div className="px-3 py-1 bg-rose-50 text-rose-600 text-[12px] font-bold rounded-full border border-rose-100">
-                              🚨 過熱
+                            <div className={cn(
+                              "px-3 py-1 text-[12px] font-bold rounded-full border",
+                              data.isMomentumStock
+                                ? "bg-amber-50 text-amber-600 border-amber-100"
+                                : "bg-rose-50 text-rose-600 border-rose-100"
+                            )}>
+                              {data.isMomentumStock ? "⚡ 動能" : "🚨 過熱"}
                             </div>
                           )}
                         </div>
@@ -619,7 +625,7 @@ export default function App() {
                               )}
 
                               {/* 近四季實際 EPS 成長率 */}
-                              {data.recentEpsGrowth != null && (
+                              {data.recentEpsGrowth != null && Math.abs(parseFloat(data.recentEpsGrowth)) <= 500 && (
                                 <span className={cn(
                                   "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
                                   parseFloat(data.recentEpsGrowth) >= 20
@@ -640,7 +646,9 @@ export default function App() {
                                   : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
                               )}>
                                 預估EPS {data.epsForward != null ? `$${data.epsForward.toFixed(2)}` : '—'}
-                                {data.epsForward != null && data.epsGrowth && parseFloat(data.epsGrowth) >= 20 && (
+                                {data.epsForward != null && data.epsGrowth &&
+                                  parseFloat(data.epsGrowth) >= 20 &&
+                                  parseFloat(data.epsGrowth) <= 500 && (
                                   <span className="ml-1 opacity-90">(+{data.epsGrowth}%)</span>
                                 )}
                               </span>
@@ -697,20 +705,28 @@ export default function App() {
                           </span>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0 py-4 border-y border-slate-50">
-                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">最佳進場區 (Pivot ~ +5%)</span>
-                          {data.isExtended ? (
-                            <span className="text-sm sm:text-base px-3 py-1 bg-rose-50 text-rose-600 font-bold rounded-lg border border-rose-200 animate-pulse">
-                              🔥 Extended Move (加速延伸段，嚴禁追高)
-                            </span>
-                          ) : (
+                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">最佳進場區</span>
+                          {!data.isExtended ? (
                             <span className="text-lg sm:text-xl font-black text-emerald-600">
                               NT$ {data.pivotPrice?.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05)?.toFixed(2)}
+                            </span>
+                          ) : data.isMomentumStock ? (
+                            <span className="text-sm px-3 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg border border-amber-200">
+                              ⚡ 動能追蹤 — 需搭配籌碼確認
+                            </span>
+                          ) : (
+                            <span className="text-sm px-3 py-1 bg-slate-50 text-slate-500 font-bold rounded-lg border border-slate-200">
+                              ⏳ 等待回測 MA50
                             </span>
                           )}
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
                            <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損 (-8%)</span>
-                           <span className="text-lg sm:text-xl font-black text-red-700">NT$ {(data.pivotPrice * 0.92)?.toFixed(2)}</span>
+                           {data.isExtended && !data.isMomentumStock ? (
+                             <span className="text-sm text-slate-400 font-medium">— 等回撤後重新評估</span>
+                           ) : (
+                             <span className="text-lg sm:text-xl font-black text-red-700">NT$ {(data.pivotPrice * 0.92)?.toFixed(2)}</span>
+                           )}
                         </div>
                       </div>
                     </div>
