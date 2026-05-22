@@ -296,6 +296,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const vol20 = calculateSMA(volumes, 20) || 0;
     const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.75 : false;
     const currentVolume = volumes[volumes.length - 1];
+    // 動能追蹤條件（過熱時的補充判斷）
+    // 條件：近5日量 > MA20量 × 1.5 且 距52週高點 < 10%
+    const isMomentumStock = vol5 > 0 && vol20 > 0 && vol5 > vol20 * 1.5;
 
     // ── Pivot 識別邏輯（全面修正版）──────────────────────────────
     const last250Days = data.slice(-250);
@@ -475,6 +478,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ma50Extension: ma50Extension.toFixed(2),
       extensionFrom50MA: ma50Extension.toFixed(2),
       isVolumeContracted,
+      isMomentumStock,
       localPivot,
       isLocalPivotExtended,
       vcpStatus,
