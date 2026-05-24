@@ -45,14 +45,25 @@ function getInd(code?: string | number): string {
 
 // ─── API：上市當日行情 ────────────────────────────────────────────────────────
 
-async function fetchTWSE(): Promise<StockRow[]> {
+async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
   const res = await fetch(
     "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
   );
   if (!res.ok) throw new Error(`TWSE API 失敗 (${res.status})`);
   const data = await res.json();
   const rows: StockRow[] = [];
+  let date = "";
   for (const s of data) {
+    // 取得資料日期（TWSE 格式為民國年/月/日，如 114/05/23）
+    if (!date && s.Date) {
+      const parts = String(s.Date).split("/");
+      if (parts.length === 3) {
+        const y = parseInt(parts[0]) + 1911;
+        date = `${y}/${parts[1]}/${parts[2]}`;
+      } else {
+        date = s.Date;
+      }
+    }
     const price = parseFloat(s.ClosingPrice);
     const change = parseFloat(s.Change);
     if (isNaN(price) || isNaN(change) || price <= 0) continue;
@@ -73,7 +84,7 @@ async function fetchTWSE(): Promise<StockRow[]> {
       ind: getInd(s.IndustryCode ?? s.industryCode),
     });
   }
-  return rows;
+  return { rows, date };
 }
 
 // ─── API：上櫃當日行情 ────────────────────────────────────────────────────────
@@ -235,9 +246,7 @@ export default function StockSurge() {
   const [loadNote, setLoadNote] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("chg");
   const [sortAsc, setSortAsc] = useState(false);
-
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}`;
+  const [dataDate, setDataDate] = useState("");
 
   // ── 主要資料載入邏輯 ──────────────────────────────────────────────────────
 
@@ -245,12 +254,18 @@ export default function StockSurge() {
     setStatus("loading");
     setStocks([]);
     setErrMsg("");
+    setDataDate("");
     setLoadNote("連線台灣證交所與櫃買中心...");
 
     try {
       const [twseRes, tpexRes] = await Promise.allSettled([fetchTWSE(), fetchTPEx()]);
       let all: StockRow[] = [];
-      if (twseRes.status === "fulfilled") all = all.concat(twseRes.value);
+      let apiDate = "";
+
+      if (twseRes.status === "fulfilled") {
+        all = all.concat(twseRes.value.rows);
+        if (twseRes.value.date) apiDate = twseRes.value.date;
+      }
       if (tpexRes.status === "fulfilled") all = all.concat(tpexRes.value);
 
       if (all.length === 0) {
@@ -261,6 +276,7 @@ export default function StockSurge() {
 
       all.sort((a, b) => b.chg - a.chg);
       setStocks(all);
+      setDataDate(apiDate);
       setStatus("done");
 
       // 批次抓上市股歷史（每批 5 支，避免過快被限流）
@@ -372,7 +388,7 @@ export default function StockSurge() {
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "0.02em" }}>每日強勢股追蹤</div>
             <div style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 2 }}>
-              {dateStr} · 上市＋上櫃 · 漲幅 &gt;5%
+              {dataDate ? `資料日期：${dataDate}` : "載入中..."} · 上市＋上櫃 · 漲幅 &gt;5%
             </div>
           </div>
         </div>
