@@ -13,8 +13,10 @@ import {
   Trash2,
   Download,
   History,
-  LayoutDashboard
+  LayoutDashboard,
+  Flame
 } from 'lucide-react';
+import StockSurge from './lib/StockSurge';
 import { 
   LineChart, 
   Line, 
@@ -104,7 +106,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<StockData | null>(null);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'analysis' | 'watchlist'>('analysis');
+  const [activeTab, setActiveTab] = useState<'analysis' | 'watchlist' | 'surge'>('analysis');
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
     const saved = localStorage.getItem('trendpulse_watchlist');
     return saved ? JSON.parse(saved) : [];
@@ -316,6 +318,16 @@ export default function App() {
                 </span>
               )}
             </button>
+            <button 
+              onClick={() => setActiveTab('surge')}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                activeTab === 'surge' ? "bg-rose-50 text-rose-600" : "text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              <Flame className="w-4 h-4" />
+              每日強勢股
+            </button>
           </nav>
         </div>
 
@@ -401,15 +413,24 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 ml-[280px] p-8 min-w-0">
+      <main className="flex-1 ml-[280px] min-w-0">
         <AnimatePresence mode="wait">
-          {activeTab === 'watchlist' ? (
+          {activeTab === 'surge' ? (
+            <motion.div
+              key="surge"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
+              <StockSurge />
+            </motion.div>
+          ) : activeTab === 'watchlist' ? (
             <motion.div
               key="watchlist"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="space-y-6"
+              className="space-y-6 p-8"
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -514,7 +535,7 @@ export default function App() {
               )}
             </motion.div>
           ) : (
-            <motion.div key="analysis_view" className="space-y-6">
+            <motion.div key="analysis_view" className="space-y-6 p-8">
               {!data && !loading && (
                 <motion.div
                   key="empty"
