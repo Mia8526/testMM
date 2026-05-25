@@ -54,34 +54,35 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
   // DEBUG：印出前兩筆確認欄位名稱
   if (data.length > 0) {
     console.log("[TWSE DEBUG] 第一筆原始資料:", JSON.stringify(data[0]));
-    console.log("[TWSE DEBUG] 第二筆原始資料:", JSON.stringify(data[1]));
   }
   for (const s of data) {
-    // 取得資料日期（TWSE 格式為民國年/月/日，如 114/05/23）
+    // 過濾權證、ETF選擇權、牛熊證（代碼 6碼以上、或含英文字母結尾）
+    const code = String(s.Code ?? "").trim();
+    if (code.length > 5) continue; // 權證代碼通常 6-7 碼
+    if (!/^\d{4,5}$/.test(code)) continue; // 只保留 4-5 位純數字代碼
+
+    // 日期解析：TWSE 格式 "1150525"（7碼，民國年3碼+月2碼+日2碼）
     if (!date && s.Date) {
-      const parts = String(s.Date).split("/");
-      if (parts.length === 3) {
-        const y = parseInt(parts[0]) + 1911;
-        date = `${y}/${parts[1]}/${parts[2]}`;
-      } else {
-        date = s.Date;
+      const d = String(s.Date).replace(/\//g, "").trim();
+      if (d.length === 7) {
+        const y = parseInt(d.slice(0, 3)) + 1911;
+        const m = d.slice(3, 5);
+        const dd = d.slice(5, 7);
+        date = `${y}/${m}/${dd}`;
+      } else if (d.length === 8) {
+        // YYYYMMDD 格式
+        date = `${d.slice(0,4)}/${d.slice(4,6)}/${d.slice(6,8)}`;
       }
     }
-    const price = parseFloat(s.ClosingPrice);
-    // TWSE Change 欄位有多種格式：
-    // 1. "+1.5" / "-1.5"（含符號）
-    // 2. "1.5" + Dir="+" / Dir="-"（符號分開）
-    // 3. "----"（停牌）/ "" （無資料）
-    const changeRaw = String(s.Change ?? s.change ?? "").replace(/,/g, "").trim();
-    if (!changeRaw || changeRaw === "----" || changeRaw === "--" || changeRaw === "X") continue;
-    let change = parseFloat(changeRaw);
-    // 如果 Dir 欄位存在且 change > 0，用 Dir 判斷正負
-    if (!isNaN(change) && s.Dir !== undefined) {
-      const dir = String(s.Dir ?? "").trim();
-      if (dir === "-" || dir === "▼") change = -Math.abs(change);
-      else if (dir === "+" || dir === "▲") change = Math.abs(change);
-    }
+
+    const price = parseFloat(String(s.ClosingPrice).replace(/,/g, ""));
+    // Change 為純數字，正漲負跌；"0.0000" 或空字串代表無變動
+    const changeRaw = String(s.Change ?? "").replace(/,/g, "").trim();
+    if (!changeRaw || changeRaw === "----" || changeRaw === "--") continue;
+    const change = parseFloat(changeRaw);
     if (isNaN(price) || isNaN(change) || price <= 0) continue;
+    // 過濾股價過低（低於 1 元通常是怪異資料）
+    if (price < 1) continue;
     const base = price - change;
     if (base <= 0) continue;
     const chg = (change / base) * 100;
@@ -110,14 +111,19 @@ async function fetchTPEx(): Promise<StockRow[]> {
   const raw = await res.json()
   const data: Record<string, string>[] = Array.isArray(raw) ? raw : raw?.data ?? [];
   const rows: StockRow[] = [];
-  // DEBUG
   if (data.length > 0) {
     console.log("[TPEx DEBUG] 第一筆原始資料:", JSON.stringify(data[0]));
   }
   for (const s of data) {
-    const price = parseFloat((s.Close ?? s.ClosingPrice ?? "").replace(/,/g, ""));
-    const changeRaw = String(s.Change ?? s.PriceChange ?? "").replace(/,/g, "").trim();
-    if (!changeRaw || changeRaw === "----" || changeRaw === "--" || changeRaw === "X") continue;
+    // 過濾權證：只保留 4-5 碼純數字代碼
+    const code = String(s.SecuritiesCompanyCode ?? s.Code ?? "").trim();
+    if (!/^\d{4,5}$/.test(code)) continue;
+
+    const price = parseFloat(String(s.Close ?? s.ClosingPrice ?? "").replace(/,/g, ""));
+    if (price < 1) continue; // 過濾股價過低
+    // TPEx Change 格式："+1.78" 或 "-1.78"
+    const changeRaw = String(s.Change ?? "").replace(/,/g, "").trim();
+    if (!changeRaw || changeRaw === "----" || changeRaw === "--") continue;
     const change = parseFloat(changeRaw);
     if (isNaN(price) || isNaN(change) || price <= 0) continue;
     const base = price - change;
