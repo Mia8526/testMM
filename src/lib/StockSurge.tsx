@@ -53,6 +53,11 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
   const data = await res.json();
   const rows: StockRow[] = [];
   let date = "";
+  // DEBUG：印出前兩筆確認欄位名稱
+  if (data.length > 0) {
+    console.log("[TWSE DEBUG] 第一筆原始資料:", JSON.stringify(data[0]));
+    console.log("[TWSE DEBUG] 第二筆原始資料:", JSON.stringify(data[1]));
+  }
   for (const s of data) {
     // 取得資料日期（TWSE 格式為民國年/月/日，如 114/05/23）
     if (!date && s.Date) {
@@ -65,7 +70,19 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
       }
     }
     const price = parseFloat(s.ClosingPrice);
-    const change = parseFloat(s.Change);
+    // TWSE Change 欄位有多種格式：
+    // 1. "+1.5" / "-1.5"（含符號）
+    // 2. "1.5" + Dir="+" / Dir="-"（符號分開）
+    // 3. "----"（停牌）/ "" （無資料）
+    const changeRaw = String(s.Change ?? s.change ?? "").replace(/,/g, "").trim();
+    if (!changeRaw || changeRaw === "----" || changeRaw === "--" || changeRaw === "X") continue;
+    let change = parseFloat(changeRaw);
+    // 如果 Dir 欄位存在且 change > 0，用 Dir 判斷正負
+    if (!isNaN(change) && s.Dir !== undefined) {
+      const dir = String(s.Dir ?? "").trim();
+      if (dir === "-" || dir === "▼") change = -Math.abs(change);
+      else if (dir === "+" || dir === "▲") change = Math.abs(change);
+    }
     if (isNaN(price) || isNaN(change) || price <= 0) continue;
     const base = price - change;
     if (base <= 0) continue;
@@ -97,9 +114,15 @@ async function fetchTPEx(): Promise<StockRow[]> {
   const raw = await res.json();
   const data: Record<string, string>[] = Array.isArray(raw) ? raw : raw?.data ?? [];
   const rows: StockRow[] = [];
+  // DEBUG
+  if (data.length > 0) {
+    console.log("[TPEx DEBUG] 第一筆原始資料:", JSON.stringify(data[0]));
+  }
   for (const s of data) {
-    const price = parseFloat((s.Close ?? "").replace(/,/g, ""));
-    const change = parseFloat((s.Change ?? "").replace(/,/g, ""));
+    const price = parseFloat((s.Close ?? s.ClosingPrice ?? "").replace(/,/g, ""));
+    const changeRaw = String(s.Change ?? s.PriceChange ?? "").replace(/,/g, "").trim();
+    if (!changeRaw || changeRaw === "----" || changeRaw === "--" || changeRaw === "X") continue;
+    const change = parseFloat(changeRaw);
     if (isNaN(price) || isNaN(change) || price <= 0) continue;
     const base = price - change;
     if (base <= 0) continue;
@@ -269,8 +292,16 @@ export default function StockSurge() {
       if (tpexRes.status === "fulfilled") all = all.concat(tpexRes.value);
 
       if (all.length === 0) {
+        // 嘗試判斷是否為非交易日（週六日）
+        const now = new Date();
+        const day = now.getDay();
+        const isWeekend = day === 0 || day === 6;
+        const isBeforeClose = now.getHours() < 15 || (now.getHours() === 15 && now.getMinutes() < 30);
+        let msg = "今日無漲幅超過 5% 的股票。";
+        if (isWeekend) msg = "今日為週末非交易日，顯示最近一個交易日資料。若仍無資料，請稍後再試。";
+        else if (isBeforeClose) msg = "盤後資料約 15:30 後更新，目前顯示前一交易日資料。";
         setStatus("error");
-        setErrMsg("今日無資料。可能為非交易日，或盤後資料尚未更新（約 15:30 後）。");
+        setErrMsg(msg);
         return;
       }
 
