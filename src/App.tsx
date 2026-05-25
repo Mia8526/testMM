@@ -16,7 +16,6 @@ import {
   LayoutDashboard,
   Flame
 } from 'lucide-react';
-import StockSurge from './lib/StockSurge';
 import { 
   LineChart, 
   Line, 
@@ -30,6 +29,7 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
+import StockSurge from './lib/StockSurge';
 import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
@@ -318,11 +318,11 @@ export default function App() {
                 </span>
               )}
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('surge')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                activeTab === 'surge' ? "bg-rose-50 text-rose-600" : "text-slate-600 hover:bg-slate-50"
+                activeTab === 'surge' ? "bg-rose-50 text-rose-500" : "text-slate-600 hover:bg-slate-50"
               )}
             >
               <Flame className="w-4 h-4" />
@@ -416,12 +416,7 @@ export default function App() {
       <main className="flex-1 ml-[280px] min-w-0">
         <AnimatePresence mode="wait">
           {activeTab === 'surge' ? (
-            <motion.div
-              key="surge"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-            >
+            <motion.div key="surge" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <StockSurge />
             </motion.div>
           ) : activeTab === 'watchlist' ? (
@@ -535,7 +530,7 @@ export default function App() {
               )}
             </motion.div>
           ) : (
-            <motion.div key="analysis_view" className="space-y-6 p-8">
+            <motion.div key="analysis_view" className="space-y-6">
               {!data && !loading && (
                 <motion.div
                   key="empty"
