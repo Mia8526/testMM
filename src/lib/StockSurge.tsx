@@ -46,11 +46,9 @@ function getInd(code?: string | number): string {
 // ─── API：上市當日行情 ────────────────────────────────────────────────────────
 
 async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
-  const res = await fetch(
-    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
-  );
-  if (!res.ok) throw new Error(`TWSE API 失敗 (${res.status})`);
-  const data = await res.json();
+  const res = await fetch('/api/twse-daily')
+  if (!res.ok) throw new Error(`TWSE proxy 失敗 (${res.status})`)
+  const data = await res.json()
   const rows: StockRow[] = [];
   let date = "";
   // DEBUG：印出前兩筆確認欄位名稱
@@ -107,11 +105,9 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
 // ─── API：上櫃當日行情 ────────────────────────────────────────────────────────
 
 async function fetchTPEx(): Promise<StockRow[]> {
-  const res = await fetch(
-    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
-  );
-  if (!res.ok) throw new Error(`TPEx API 失敗 (${res.status})`);
-  const raw = await res.json();
+  const res = await fetch('/api/tpex-daily')
+  if (!res.ok) throw new Error(`TPEx proxy 失敗 (${res.status})`)
+  const raw = await res.json()
   const data: Record<string, string>[] = Array.isArray(raw) ? raw : raw?.data ?? [];
   const rows: StockRow[] = [];
   // DEBUG
