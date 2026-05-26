@@ -53,36 +53,37 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
   let date = "";
   // DEBUG：印出前兩筆確認欄位名稱
   if (data.length > 0) {
-    console.log("[TWSE DEBUG] 第一筆原始資料:", JSON.stringify(data[0]));
+    console.log("[TWSE DEBUG] 所有欄位名稱:", Object.keys(data[0]));
+    // 印出前 5 筆 4-5 碼股票
+    const samples = data.filter((s: Record<string,string>) => /^\d{4,5}$/.test(String(s.Code ?? ""))).slice(0, 5);
+    console.log("[TWSE DEBUG] 前5筆一般股票:", JSON.stringify(samples));
   }
-  for (const s of data) {
-    // 過濾權證、ETF選擇權、牛熊證（代碼 6碼以上、或含英文字母結尾）
-    const code = String(s.Code ?? "").trim();
-    if (code.length > 5) continue; // 權證代碼通常 6-7 碼
-    if (!/^\d{4,5}$/.test(code)) continue; // 只保留 4-5 位純數字代碼
 
-    // 日期解析：TWSE 格式 "1150525"（7碼，民國年3碼+月2碼+日2碼）
-    if (!date && s.Date) {
+  // 先從第一筆取日期（不管代碼類型）
+  for (const s of data) {
+    if (s.Date) {
       const d = String(s.Date).replace(/\//g, "").trim();
       if (d.length === 7) {
         const y = parseInt(d.slice(0, 3)) + 1911;
-        const m = d.slice(3, 5);
-        const dd = d.slice(5, 7);
-        date = `${y}/${m}/${dd}`;
+        date = `${y}/${d.slice(3, 5)}/${d.slice(5, 7)}`;
       } else if (d.length === 8) {
-        // YYYYMMDD 格式
         date = `${d.slice(0,4)}/${d.slice(4,6)}/${d.slice(6,8)}`;
       }
+      break;
     }
+  }
+
+  for (const s of data) {
+    // 過濾權證/ETF選擇權：只保留 4-5 碼純數字代碼（一般股票）
+    const code = String(s.Code ?? "").trim();
+    if (!/^\d{4,5}$/.test(code)) continue;
 
     const price = parseFloat(String(s.ClosingPrice).replace(/,/g, ""));
-    // Change 為純數字，正漲負跌；"0.0000" 或空字串代表無變動
+    if (isNaN(price) || price < 1) continue;
     const changeRaw = String(s.Change ?? "").replace(/,/g, "").trim();
     if (!changeRaw || changeRaw === "----" || changeRaw === "--") continue;
     const change = parseFloat(changeRaw);
-    if (isNaN(price) || isNaN(change) || price <= 0) continue;
-    // 過濾股價過低（低於 1 元通常是怪異資料）
-    if (price < 1) continue;
+    if (isNaN(change)) continue;
     const base = price - change;
     if (base <= 0) continue;
     const chg = (change / base) * 100;
@@ -153,42 +154,48 @@ async function fetchHistory(
 ): Promise<{ c14: number | null; vol5: number | null; vol14: number | null }> {
   try {
     const now = new Date();
-    const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}01`;
 
-    // 使用 /api/twse-history proxy（放在你的 api/ 資料夾）
-    const url = `/api/twse-history?date=${ym}&stockNo=${code}`;
-    const r = await fetch(url);
-    if (!r.ok) return { c14: null, vol5: null, vol14: null };
-    const d = await r.json();
+    // 抓本月資料
+    const ymThis = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}01`;
+    const r1 = await fetch(`/api/twse-history?date=${ymThis}&stockNo=${code}`);
+    const d1 = r1.ok ? await r1.json() : null;
+    const thisRows: string[][] = d1?.stat === "OK" && Array.isArray(d1.data) ? d1.data : [];
 
-    if (d.stat !== "OK" || !Array.isArray(d.data) || d.data.length < 10) {
-      return { c14: null, vol5: null, vol14: null };
+    // 如果本月資料不足 28 筆，補抓上個月
+    let prevRows: string[][] = [];
+    if (thisRows.length < 28) {
+      const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const ymPrev = `${prevDate.getFullYear()}${String(prevDate.getMonth() + 1).padStart(2, "0")}01`;
+      const r2 = await fetch(`/api/twse-history?date=${ymPrev}&stockNo=${code}`);
+      const d2 = r2.ok ? await r2.json() : null;
+      prevRows = d2?.stat === "OK" && Array.isArray(d2.data) ? d2.data : [];
     }
 
-    const rows: string[][] = d.data;
-    const n = rows.length;
+    // 合併（上月在前，本月在後），取最近 40 筆
+    const allRows = [...prevRows, ...thisRows].slice(-40);
+    if (allRows.length < 5) return { c14: null, vol5: null, vol14: null };
 
-    // 解析收盤價 & 成交量
+    const n = allRows.length;
     const parsePrice = (row: string[]) => parseFloat(row[6]?.replace(/,/g, "") ?? "0");
     const parseVol = (row: string[]) => parseInt(row[2]?.replace(/,/g, "") ?? "0", 10);
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
     // 14 日漲幅
-    const p0 = parsePrice(rows[Math.max(0, n - 14)]);
-    const p1 = parsePrice(rows[n - 1]);
+    const p0 = parsePrice(allRows[Math.max(0, n - 14)]);
+    const p1 = parsePrice(allRows[n - 1]);
     const c14 = p0 > 0 ? parseFloat(((p1 - p0) / p0 * 100).toFixed(1)) : null;
 
     // 5 日均量變化（近 5 日 vs 前 5 日）
-    const recent5 = rows.slice(-5).map(parseVol);
-    const prev5 = rows.slice(Math.max(0, n - 10), n - 5).map(parseVol);
-    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const recent5 = allRows.slice(-5).map(parseVol);
+    const prev5 = allRows.slice(Math.max(0, n - 10), n - 5).map(parseVol);
     const vol5 =
       prev5.length >= 5 && recent5.length >= 5 && avg(prev5) > 0
         ? Math.round(((avg(recent5) - avg(prev5)) / avg(prev5)) * 100)
         : null;
 
     // 14 日均量變化（近 14 日 vs 前 14 日）
-    const recent14 = rows.slice(-14).map(parseVol);
-    const prev14 = rows.slice(Math.max(0, n - 28), n - 14).map(parseVol);
+    const recent14 = allRows.slice(-14).map(parseVol);
+    const prev14 = allRows.slice(Math.max(0, n - 28), n - 14).map(parseVol);
     const vol14 =
       prev14.length >= 14 && recent14.length >= 14 && avg(prev14) > 0
         ? Math.round(((avg(recent14) - avg(prev14)) / avg(prev14)) * 100)
