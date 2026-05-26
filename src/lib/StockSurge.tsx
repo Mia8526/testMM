@@ -74,9 +74,10 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
   }
 
   for (const s of data) {
-    // 過濾權證/ETF選擇權：只保留 4-5 碼純數字代碼（一般股票）
     const code = String(s.Code ?? "").trim();
+    // 一般股票：4-5 碼純數字，且不以 0 開頭（0 開頭為 ETF/指數基金）
     if (!/^\d{4,5}$/.test(code)) continue;
+    if (code.startsWith("0")) continue;
 
     const price = parseFloat(String(s.ClosingPrice).replace(/,/g, ""));
     if (isNaN(price) || price < 1) continue;
@@ -89,7 +90,7 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
     const chg = (change / base) * 100;
     if (chg < 5) continue;
     rows.push({
-      code: s.Code,
+      code,
       name: s.Name?.trim() ?? "",
       market: "上市",
       price,
@@ -98,7 +99,7 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
       vol5: null,
       vol14: null,
       cap: null,
-      ind: getInd(s.IndustryCode ?? s.industryCode),
+      ind: "載入中",  // 產業由 fetchIndustryMap 補上
     });
   }
   return { rows, date };
@@ -147,7 +148,28 @@ async function fetchTPEx(): Promise<StockRow[]> {
   return rows;
 }
 
-// ─── API：個股歷史（透過 Vercel proxy 繞過 CORS）────────────────────────────
+// ─── 產業對照表（從 TWSE 個股基本資料 API 取得）────────────────────────────
+
+async function fetchIndustryMap(): Promise<Record<string, string>> {
+  try {
+    const res = await fetch("/api/twse-industry");
+    if (!res.ok) return {};
+    const data = await res.json();
+    const map: Record<string, string> = {};
+    if (Array.isArray(data)) {
+      for (const s of data) {
+        const code = String(s.公司代號 ?? s.Code ?? "").trim();
+        const ind = String(s.產業別 ?? s.Industry ?? s.industryName ?? "").trim();
+        if (code && ind) map[code] = ind;
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+
 
 async function fetchHistory(
   code: string
@@ -290,15 +312,31 @@ export default function StockSurge() {
     setLoadNote("連線台灣證交所與櫃買中心...");
 
     try {
-      const [twseRes, tpexRes] = await Promise.allSettled([fetchTWSE(), fetchTPEx()]);
+      const [twseRes, tpexRes, indRes] = await Promise.allSettled([
+        fetchTWSE(),
+        fetchTPEx(),
+        fetchIndustryMap(),
+      ]);
       let all: StockRow[] = [];
       let apiDate = "";
+      const indMap = indRes.status === "fulfilled" ? indRes.value : {};
 
       if (twseRes.status === "fulfilled") {
-        all = all.concat(twseRes.value.rows);
+        // 補上產業
+        const rows = twseRes.value.rows.map(s => ({
+          ...s,
+          ind: indMap[s.code] ?? "其他",
+        }));
+        all = all.concat(rows);
         if (twseRes.value.date) apiDate = twseRes.value.date;
       }
-      if (tpexRes.status === "fulfilled") all = all.concat(tpexRes.value);
+      if (tpexRes.status === "fulfilled") {
+        const rows = tpexRes.value.map(s => ({
+          ...s,
+          ind: indMap[s.code] ?? s.ind ?? "其他",
+        }));
+        all = all.concat(rows);
+      }
 
       if (all.length === 0) {
         // 嘗試判斷是否為非交易日（週六日）
