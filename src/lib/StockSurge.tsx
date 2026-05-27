@@ -158,13 +158,16 @@ async function fetchIndustryMap(): Promise<Record<string, string>> {
     const map: Record<string, string> = {};
     if (Array.isArray(data)) {
       for (const s of data) {
-        const code = String(s.公司代號 ?? s.Code ?? "").trim();
-        const ind = String(s.產業別 ?? s.Industry ?? s.industryName ?? "").trim();
+        // t187ap03_L 欄位是中文：公司代號、產業別
+        const code = String(s["公司代號"] ?? s.Code ?? "").trim();
+        const ind = String(s["產業別"] ?? s.Industry ?? "").trim();
         if (code && ind) map[code] = ind;
       }
     }
+    console.log("[IND DEBUG] 產業對照筆數:", Object.keys(map).length, "範例:", JSON.stringify(Object.entries(map).slice(0, 3)));
     return map;
-  } catch {
+  } catch (e) {
+    console.error("[IND DEBUG] 產業對照失敗:", e);
     return {};
   }
 }
