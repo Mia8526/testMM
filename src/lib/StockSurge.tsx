@@ -1,3 +1,4 @@
+// StockSurge v4 - 2026/05/27
 import { useEffect, useState, useCallback } from "react";
 import {
   BarChart,
