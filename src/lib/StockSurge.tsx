@@ -151,21 +151,24 @@ async function fetchTPEx(): Promise<StockRow[]> {
 
 // ─── 產業對照表（從 TWSE 個股基本資料 API 取得）────────────────────────────
 
-async function fetchIndustryMap(): Promise<Record<string, string>> {
+async function fetchIndustryMap(): Promise<Record<string, { ind: string; cap: number | null }>> {
   try {
     const res = await fetch("/api/twse-industry");
     if (!res.ok) return {};
     const data = await res.json();
-    const map: Record<string, string> = {};
+    const map: Record<string, { ind: string; cap: number | null }> = {};
     if (Array.isArray(data)) {
       for (const s of data) {
-        // t187ap03_L 欄位是中文：公司代號、產業別
-        const code = String(s["公司代號"] ?? s.Code ?? "").trim();
-        const ind = String(s["產業別"] ?? s.Industry ?? "").trim();
-        if (code && ind) map[code] = ind;
+        const code = String(s["公司代號"] ?? "").trim();
+        const indCode = String(s["產業別"] ?? "").trim();
+        const capRaw = parseFloat(String(s["實收資本額"] ?? "0"));
+        const cap = !isNaN(capRaw) && capRaw > 0 ? parseFloat((capRaw / 1e8).toFixed(1)) : null;
+        const ind = IND_MAP[indCode.padStart(2, "0")] ?? "其他";
+        if (code) map[code] = { ind, cap };
       }
     }
-    console.log("[IND DEBUG] 產業對照筆數:", Object.keys(map).length, "範例:", JSON.stringify(Object.entries(map).slice(0, 3)));
+    console.log("[IND DEBUG] 產業對照筆數:", Object.keys(map).length,
+      "範例:", JSON.stringify(Object.entries(map).slice(0, 2)));
     return map;
   } catch (e) {
     console.error("[IND DEBUG] 產業對照失敗:", e);
@@ -326,10 +329,10 @@ export default function StockSurge() {
       const indMap = indRes.status === "fulfilled" ? indRes.value : {};
 
       if (twseRes.status === "fulfilled") {
-        // 補上產業
         const rows = twseRes.value.rows.map(s => ({
           ...s,
-          ind: indMap[s.code] ?? "其他",
+          ind: indMap[s.code]?.ind ?? "其他",
+          cap: indMap[s.code]?.cap ?? null,
         }));
         all = all.concat(rows);
         if (twseRes.value.date) apiDate = twseRes.value.date;
@@ -337,7 +340,8 @@ export default function StockSurge() {
       if (tpexRes.status === "fulfilled") {
         const rows = tpexRes.value.map(s => ({
           ...s,
-          ind: indMap[s.code] ?? s.ind ?? "其他",
+          ind: indMap[s.code]?.ind ?? s.ind ?? "其他",
+          cap: indMap[s.code]?.cap ?? null,
         }));
         all = all.concat(rows);
       }
