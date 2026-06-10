@@ -5,27 +5,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS')
   if (req.method === 'OPTIONS') { res.status(200).end(); return }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000) // 8 秒 timeout
+
   try {
     const r = await fetch(
       'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes',
       {
+        signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': 'application/json',
           'Referer': 'https://www.tpex.org.tw/',
-          'Origin': 'https://www.tpex.org.tw',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
         }
       }
     )
+    clearTimeout(timeout)
 
     if (!r.ok) {
-      console.error('TPEx upstream error:', r.status, await r.text())
-      res.status(r.status).json({ error: `upstream ${r.status}` })
+      console.error('TPEx upstream:', r.status)
+      res.status(200).json([]) // 回傳空陣列而非 500，讓前端優雅降級
       return
     }
 
@@ -34,14 +33,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       data = JSON.parse(text)
     } catch {
-      console.error('TPEx parse error, raw:', text.slice(0, 200))
-      res.status(200).setHeader('Content-Type', 'application/json').send('[]')
+      console.error('TPEx JSON parse error')
+      res.status(200).json([])
       return
     }
 
-    res.status(200).json(data)
-  } catch (e) {
-    console.error('TPEx proxy exception:', e)
-    res.status(500).json({ error: String(e) })
+    res.status(200).json(Array.isArray(data) ? data : data?.data ?? [])
+  } catch (e: unknown) {
+    clearTimeout(timeout)
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('TPEx proxy error:', msg)
+    // 逾時或連線失敗時回傳空陣列，不要讓整頁壞掉
+    res.status(200).json([])
   }
 }
