@@ -1,4 +1,4 @@
-// StockSurge v4 - 2026/05/27
+// StockSurge v5 - 2026/06/11
 import { useEffect, useState, useCallback } from "react";
 import {
   BarChart,
@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { RefreshCw, TrendingUp, Flame, AlertCircle } from "lucide-react";
+import { RefreshCw, TrendingUp, Flame, AlertCircle, BookmarkPlus, Check } from "lucide-react";
 
 // ─── 型別定義 ─────────────────────────────────────────────────────────────────
 
@@ -120,9 +120,10 @@ async function fetchTPEx(): Promise<StockRow[]> {
     console.log("[TPEx DEBUG] 第一筆原始資料:", JSON.stringify(data[0]));
   }
   for (const s of data) {
-    // 過濾權證：只保留 4-5 碼純數字代碼
+    // 過濾權證/ETF：只保留 4-5 碼純數字，且不以 0 開頭
     const code = String(s.SecuritiesCompanyCode ?? s.Code ?? "").trim();
     if (!/^\d{4,5}$/.test(code)) continue;
+    if (code.startsWith("0")) continue;
 
     const price = parseFloat(String(s.Close ?? s.ClosingPrice ?? "").replace(/,/g, ""));
     if (price < 1) continue; // 過濾股價過低
@@ -302,7 +303,14 @@ function SortTh({
 
 // ─── 主元件 ───────────────────────────────────────────────────────────────────
 
-export default function StockSurge() {
+export default function StockSurge({ onAddToWatchlist }: {
+  onAddToWatchlist?: (item: {
+    id: string; date: string; symbol: string; shortName: string;
+    price: number; currency: string; pivotPrice: number;
+    suggestedStopLoss: number; ma50Extension: string;
+    extensionText: string; failedConditions: string[];
+  }) => void;
+}) {
   const [stocks, setStocks] = useState<StockRow[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errMsg, setErrMsg] = useState("");
@@ -310,6 +318,7 @@ export default function StockSurge() {
   const [sortKey, setSortKey] = useState<SortKey>("chg");
   const [sortAsc, setSortAsc] = useState(false);
   const [dataDate, setDataDate] = useState("");
+  const [addedCodes, setAddedCodes] = useState<Set<string>>(new Set());
 
   // ── 主要資料載入邏輯 ──────────────────────────────────────────────────────
 
@@ -396,6 +405,24 @@ export default function StockSurge() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const handleAddToWatchlist = useCallback((s: StockRow) => {
+    if (!onAddToWatchlist) return;
+    onAddToWatchlist({
+      id: Date.now().toString(),
+      date: new Date().toLocaleString('zh-TW', { hour12: false }),
+      symbol: `${s.code}.TW`,
+      shortName: s.name,
+      price: s.price,
+      currency: "NT$",
+      pivotPrice: 0,
+      suggestedStopLoss: 0,
+      ma50Extension: "0",
+      extensionText: "從強勢股追蹤加入",
+      failedConditions: [],
+    });
+    setAddedCodes(prev => new Set(prev).add(s.code));
+  }, [onAddToWatchlist]);
 
   // ── 排序 ─────────────────────────────────────────────────────────────────
 
@@ -592,7 +619,11 @@ export default function StockSurge() {
                     <SortTh label="14日漲幅" sk="c14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
                     <SortTh label="量能(5日)" sk="vol5" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
                     <SortTh label="量能(14日)" sk="vol14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
+                    <SortTh label="股本(億)" sk="cap" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
                     <SortTh label="產業" sk="ind" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} />
+                    {onAddToWatchlist && (
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", width: 60 }}>加入</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -654,6 +685,10 @@ export default function StockSurge() {
                         <td style={{ padding: "9px 12px" }}><VolBar value={s.vol5} /></td>
                         {/* 量能 14日 */}
                         <td style={{ padding: "9px 12px" }}><VolBar value={s.vol14} /></td>
+                        {/* 股本 */}
+                        <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--c-muted)", fontVariantNumeric: "tabular-nums" }}>
+                          {s.cap !== null ? s.cap.toFixed(1) : "—"}
+                        </td>
                         {/* 產業 */}
                         <td style={{ padding: "9px 12px" }}>
                           <span style={{
@@ -664,6 +699,28 @@ export default function StockSurge() {
                             {s.ind}
                           </span>
                         </td>
+                        {/* 加入觀察日誌 */}
+                        {onAddToWatchlist && (
+                          <td style={{ padding: "9px 12px", textAlign: "center" }}>
+                            <button
+                              onClick={() => handleAddToWatchlist(s)}
+                              title="加入觀察日誌"
+                              style={{
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                width: 28, height: 28, borderRadius: 6, cursor: "pointer",
+                                border: addedCodes.has(s.code) ? "1px solid var(--c-dn)" : "1px solid var(--c-border)",
+                                background: addedCodes.has(s.code) ? "rgba(43,189,142,0.12)" : "var(--c-surface2)",
+                                color: addedCodes.has(s.code) ? "var(--c-dn)" : "var(--c-muted)",
+                                transition: "all 0.2s",
+                              }}
+                            >
+                              {addedCodes.has(s.code)
+                                ? <Check size={13} />
+                                : <BookmarkPlus size={13} />
+                              }
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
