@@ -417,7 +417,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           {activeTab === 'surge' ? (
             <motion.div key="surge" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <StockSurge />
+              <StockSurge onAddToWatchlist={addToWatchlist} />
             </motion.div>
           ) : activeTab === 'watchlist' ? (
             <motion.div
@@ -530,7 +530,7 @@ export default function App() {
               )}
             </motion.div>
           ) : (
-            <motion.div key="analysis_view" className="space-y-6">
+            <motion.div key="analysis_view" className="space-y-6 p-8">
               {!data && !loading && (
                 <motion.div
                   key="empty"
