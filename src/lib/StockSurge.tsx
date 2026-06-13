@@ -29,15 +29,16 @@ interface StockRow {
 // ─── 產業代碼對照表 ───────────────────────────────────────────────────────────
 
 const IND_MAP: Record<string, string> = {
-  "01": "水泥", "02": "食品", "03": "塑膠", "04": "紡織纖維",
-  "05": "電機機械", "06": "電器電纜", "07": "化學工業", "08": "玻璃陶瓷",
-  "09": "造紙", "10": "鋼鐵", "11": "橡膠", "12": "汽車",
-  "13": "半導體", "14": "電腦及週邊", "15": "光電", "16": "通信網路",
-  "17": "電子零組件", "18": "電子通路", "19": "資訊服務", "20": "其他電子",
-  "21": "建材營建", "22": "航運", "23": "觀光餐旅", "24": "電子零組件",
-  "25": "金融保險", "26": "貿易百貨", "27": "油電燃氣", "28": "數位雲端",
-  "29": "運動休閒", "30": "居家生活", "31": "其他", "32": "生技醫療",
-  "33": "化學生技醫療", "34": "鋼鐵工業", "35": "文化創意", "36": "農業科技",
+  "01": "水泥工業", "02": "食品工業", "03": "塑膠工業", "04": "紡織纖維",
+  "05": "電機機械", "06": "電器電纜", "08": "玻璃陶瓷", "09": "造紙工業",
+  "10": "鋼鐵工業", "11": "橡膠工業", "12": "汽車工業", "13": "電子工業",
+  "14": "建材營造業", "15": "航運業", "16": "觀光餐旅", "17": "金融保險業",
+  "18": "貿易百貨業", "19": "綜合", "20": "其他業", "21": "化學工業",
+  "22": "生技醫療業", "23": "油電燃氣業", "24": "半導體業",
+  "25": "電腦及週邊設備業", "26": "光電業", "27": "通信網路業",
+  "28": "電子零組件業", "29": "電子通路業", "30": "資訊服務業",
+  "31": "其他電子業", "32": "文化創意業", "33": "農業科技業",
+  "35": "綠能環保", "36": "數位雲端", "37": "運動休閒", "38": "居家生活",
   "91": "存託憑證",
 };
 
@@ -47,8 +48,6 @@ function normalizeIndustry(value?: string | number): string {
   if (!raw) return "其他";
   if (/^\d+$/.test(raw)) return IND_MAP[raw.padStart(2, "0")] ?? "其他";
   const cleaned = raw
-    .replace("工業", "")
-    .replace("業", "")
     .replace("類", "")
     .trim();
   return cleaned || "其他";
@@ -170,9 +169,9 @@ async function fetchIndustryMap(): Promise<Record<string, { ind: string; cap: nu
     const map: Record<string, { ind: string; cap: number | null }> = {};
     if (Array.isArray(data)) {
       for (const s of data) {
-        const code = String(s["公司代號"] ?? "").trim();
-        const indCode = String(s["產業別"] ?? "").trim();
-        const capRaw = parseFloat(String(s["實收資本額"] ?? "0"));
+        const code = String(s["公司代號"] ?? s.SecuritiesCompanyCode ?? "").trim();
+        const indCode = String(s["產業別"] ?? s.SecuritiesIndustryCode ?? "").trim();
+        const capRaw = parseFloat(String(s["實收資本額"] ?? s["Paidin.Capital.NTDollars"] ?? "0"));
         const cap = !isNaN(capRaw) && capRaw > 0 ? parseFloat((capRaw / 1e8).toFixed(1)) : null;
         const ind = normalizeIndustry(indCode);
         if (code) map[code] = { ind, cap };
