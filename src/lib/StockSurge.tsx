@@ -333,7 +333,10 @@ function SortTh({
 export default function StockSurge({ onAddToWatchlist }: {
   onAddToWatchlist?: (item: {
     id: string; date: string; symbol: string; shortName: string;
-    price: number; currency: string; pivotPrice: number;
+    source?: 'analysis' | 'surge'; price: number; currency: string;
+    market?: string; industry?: string; todayChange?: number | null;
+    c14?: number | null; vol5?: number | null; vol14?: number | null;
+    pivotPrice: number;
     suggestedStopLoss: number; ma50Extension: string;
     extensionText: string; failedConditions: string[];
   }) => void;
@@ -438,10 +441,17 @@ export default function StockSurge({ onAddToWatchlist }: {
     onAddToWatchlist({
       id: Date.now().toString(),
       date: new Date().toLocaleString('zh-TW', { hour12: false }),
+      source: "surge",
       symbol: s.code + (s.market === "上櫃" ? ".TWO" : ".TW"),
       shortName: s.name,
       price: s.price,
       currency: "NT$",
+      market: s.market,
+      industry: s.ind,
+      todayChange: s.chg,
+      c14: s.c14,
+      vol5: s.vol5,
+      vol14: s.vol14,
       pivotPrice: 0,
       suggestedStopLoss: 0,
       ma50Extension: "0",

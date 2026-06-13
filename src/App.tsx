@@ -90,10 +90,17 @@ interface StockData {
 interface WatchlistItem {
   id: string;
   date: string;
+  source?: 'analysis' | 'surge';
   symbol: string;
   shortName: string;
   price: number;
   currency: string;
+  market?: string;
+  industry?: string;
+  todayChange?: number | null;
+  c14?: number | null;
+  vol5?: number | null;
+  vol14?: number | null;
   pivotPrice: number;
   suggestedStopLoss: number;
   ma50Extension: string;
@@ -117,10 +124,14 @@ export default function App() {
     localStorage.setItem('trendpulse_watchlist', JSON.stringify(items));
   };
 
+  const saveUniqueWatchlistItem = (item: WatchlistItem) => {
+    const exists = watchlist.some((w) => w.symbol === item.symbol);
+    saveWatchlist(exists ? watchlist : [item, ...watchlist]);
+  };
+
   const addToWatchlist = (item?: WatchlistItem) => {
     if (item) {
-      const exists = watchlist.some((w) => w.symbol === item.symbol);
-      saveWatchlist(exists ? watchlist : [item, ...watchlist]);
+      saveUniqueWatchlistItem(item);
       return;
     }
 
@@ -144,6 +155,7 @@ export default function App() {
     const newItem: WatchlistItem = {
       id: Date.now().toString(),
       date: new Date().toLocaleString('zh-TW', { hour12: false }),
+      source: 'analysis',
       symbol: data.symbol,
       shortName: data.shortName,
       price: data.currentPrice,
@@ -155,7 +167,7 @@ export default function App() {
       failedConditions: failed
     };
 
-    saveWatchlist([newItem, ...watchlist]);
+    saveUniqueWatchlistItem(newItem);
   };
 
   const removeFromWatchlist = (id: string) => {
@@ -178,17 +190,22 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "來源", "代號", "名稱", "當前價格", "市場/產業", "強勢資訊", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
+      item.source === 'surge' ? '每日強勢股' : '趨勢分析',
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
+      item.source === 'surge' ? `${item.market ?? '-'} / ${item.industry ?? '-'}` : '-',
+      item.source === 'surge'
+        ? `今日 ${formatPct(item.todayChange)}; 14日 ${formatPct(item.c14)}; 5日量 ${formatPct(item.vol5)}; 14日量 ${formatPct(item.vol14)}`
+        : '-',
       item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
       item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-",
       `${item.ma50Extension}%`,
       item.extensionText,
-      item.failedConditions.join('; ')
+      (item.failedConditions ?? []).join('; ')
     ]);
 
     const csvContent = [headers, ...rows]
@@ -282,6 +299,106 @@ export default function App() {
       color: "text-rose-700", 
       bg: "bg-rose-50 border-rose-100 animate-pulse" 
     };
+  };
+
+  const formatPct = (value?: number | null) => {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "-";
+    return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+  };
+
+  const isSurgeItem = (item: WatchlistItem) => item.source === 'surge';
+
+  const renderWatchlistSetup = (item: WatchlistItem) => {
+    if (isSurgeItem(item)) {
+      return (
+        <div className="space-y-1">
+          <div className="text-sm font-bold text-rose-600">今日 {formatPct(item.todayChange)}</div>
+          <div className="text-[11px] text-slate-500">14日 {formatPct(item.c14)}</div>
+        </div>
+      );
+    }
+
+    return (
+      <span className="text-sm font-bold text-slate-900">
+        {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
+      </span>
+    );
+  };
+
+  const renderWatchlistRisk = (item: WatchlistItem) => {
+    if (isSurgeItem(item)) {
+      return (
+        <div className="space-y-1">
+          <div className="text-sm font-bold text-slate-700">5日量 {formatPct(item.vol5)}</div>
+          <div className="text-[11px] text-slate-500">14日量 {formatPct(item.vol14)}</div>
+        </div>
+      );
+    }
+
+    return (
+      <span className="text-sm font-bold text-rose-600">
+        {item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-"}
+      </span>
+    );
+  };
+
+  const renderWatchlistSignal = (item: WatchlistItem) => {
+    if (isSurgeItem(item)) {
+      return (
+        <div className="space-y-1">
+          <span className="inline-flex rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">每日強勢股</span>
+          <div className="text-[11px] text-slate-500">{item.market ?? "-"} · {item.industry ?? "產業未分類"}</div>
+        </div>
+      );
+    }
+
+    const ext = parseFloat(item.ma50Extension);
+    return (
+      <>
+        <div className={cn("text-sm font-bold", getExtensionAlert(ext).color)}>
+          {item.ma50Extension}%
+        </div>
+        <div className={cn("text-[10px] font-bold", getExtensionAlert(ext).color)}>
+          {item.extensionText}
+        </div>
+      </>
+    );
+  };
+
+  const renderWatchlistConditions = (item: WatchlistItem) => {
+    if (isSurgeItem(item)) {
+      return (
+        <div className="flex flex-wrap gap-1">
+          <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-medium">
+            漲幅 {formatPct(item.todayChange)}
+          </span>
+          {item.c14 !== null && item.c14 !== undefined && (
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+              14日 {formatPct(item.c14)}
+            </span>
+          )}
+          {item.vol5 !== null && item.vol5 !== undefined && (
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+              5日量 {formatPct(item.vol5)}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    const failedConditions = item.failedConditions ?? [];
+
+    return failedConditions.length === 0 ? (
+      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">全數通過 ✓</span>
+    ) : (
+      <div className="flex flex-wrap gap-1">
+        {failedConditions.map((c, i) => (
+          <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+            {c}
+          </span>
+        ))}
+      </div>
+    );
   };
 
 
@@ -467,10 +584,10 @@ export default function App() {
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">建議停損</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">待滿足條件</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">關鍵價/漲幅</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險/量能</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">來源狀態</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">條件摘要</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
                       </tr>
                     </thead>
@@ -483,33 +600,10 @@ export default function App() {
                             <div className="text-xs text-slate-400">{item.symbol}</div>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
-                          <td className="px-6 py-4 text-sm font-bold text-slate-900">
-                            {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
-                          </td>
-                          <td className="px-6 py-4 text-sm font-bold text-rose-600">
-                            {item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-"}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className={cn("text-sm font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
-                              {item.ma50Extension}%
-                            </div>
-                            <div className={cn("text-[10px] font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
-                              {item.extensionText}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            {item.failedConditions.length === 0 ? (
-                              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">全數通過 ✓</span>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {item.failedConditions.map((c, i) => (
-                                  <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
-                                    {c}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </td>
+                          <td className="px-6 py-4">{renderWatchlistSetup(item)}</td>
+                          <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
+                          <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
+                          <td className="px-6 py-4">{renderWatchlistConditions(item)}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button 
@@ -842,9 +936,9 @@ export default function App() {
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">突破目標價</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">乖離率</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">待滿足條件</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">關鍵價/漲幅</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">來源狀態</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">條件摘要</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
                             </tr>
                           </thead>
@@ -857,30 +951,9 @@ export default function App() {
                                   <div className="text-xs text-slate-400">{item.symbol}</div>
                                 </td>
                                 <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price <= 100 ? item.price.toFixed(2) : item.price}</td>
-                                <td className="px-6 py-4 text-sm font-bold text-slate-900">
-                                  {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice <= 100 ? item.pivotPrice.toFixed(2) : item.pivotPrice.toFixed(2)}` : "-"}
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className={cn("text-sm font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
-                                    {item.ma50Extension}%
-                                  </div>
-                                  <div className={cn("text-[10px] font-bold", getExtensionAlert(parseFloat(item.ma50Extension)).color)}>
-                                    {item.extensionText}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  {item.failedConditions.length === 0 ? (
-                                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">全數通過 ✓</span>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-1">
-                                      {item.failedConditions.map((c, i) => (
-                                        <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
-                                          {c}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </td>
+                                <td className="px-6 py-4">{renderWatchlistSetup(item)}</td>
+                                <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
+                                <td className="px-6 py-4">{renderWatchlistConditions(item)}</td>
                                 <td className="px-6 py-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
                                     <button 
@@ -956,4 +1029,3 @@ function ConditionItem({ label, met, detail }: { label: string; met: boolean; de
     </div>
   );
 }
-
