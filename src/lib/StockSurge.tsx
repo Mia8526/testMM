@@ -19,12 +19,19 @@ interface StockRow {
   market: "上市" | "上櫃";
   price: number;
   chg: number;
+  amount: number | null;
   c14: number | null;
   vol5: number | null;
   vol14: number | null;
   cap: number | null;
   ind: string;
 }
+
+type ViewMode = "quality" | "bottom" | "all";
+
+const MIN_PRICE = 10;
+const MIN_AMOUNT = 50_000_000;
+const LIST_LIMIT = 30;
 
 // ─── 產業代碼對照表 ───────────────────────────────────────────────────────────
 
@@ -51,6 +58,23 @@ function normalizeIndustry(value?: string | number): string {
     .replace("類", "")
     .trim();
   return cleaned || "其他";
+}
+
+function parseNumber(value?: string | number | null): number | null {
+  if (value === undefined || value === null) return null;
+  const parsed = Number(String(value).replace(/[,+\s]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstNumber(
+  source: Record<string, string>,
+  keys: string[]
+): number | null {
+  for (const key of keys) {
+    const value = parseNumber(source[key]);
+    if (value !== null) return value;
+  }
+  return null;
 }
 
 // ─── API：上市當日行情 ────────────────────────────────────────────────────────
@@ -99,12 +123,14 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
     if (base <= 0) continue;
     const chg = (change / base) * 100;
     if (chg < 5) continue;
+    const amount = parseNumber(s.TradeValue);
     rows.push({
       code,
       name: s.Name?.trim() ?? "",
       market: "上市",
       price,
       chg,
+      amount,
       c14: null,
       vol5: null,
       vol14: null,
@@ -143,12 +169,22 @@ async function fetchTPEx(): Promise<StockRow[]> {
     if (base <= 0) continue;
     const chg = (change / base) * 100;
     if (chg < 5) continue;
+    const amount = firstNumber(s, [
+      "TransactionAmount",
+      "TradingValue",
+      "TradeValue",
+      "Amount",
+      "Value",
+      "TradingMoney",
+      "TradingAmount",
+    ]);
     rows.push({
       code: s.SecuritiesCompanyCode ?? s.Code ?? "",
       name: (s.CompanyName ?? s.Name ?? "").trim(),
       market: "上櫃",
       price,
       chg,
+      amount,
       c14: null,
       vol5: null,
       vol14: null,
@@ -269,7 +305,33 @@ async function fetchHistory(
 // ─── 底部啟動判斷 ─────────────────────────────────────────────────────────────
 
 function isBottom(s: StockRow): boolean {
-  return (s.c14 !== null ? s.c14 < 5 : false) && (s.vol5 !== null ? s.vol5 > 100 : false);
+  return (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    (s.c14 !== null ? s.c14 < 5 : false) &&
+    (s.vol5 !== null ? s.vol5 > 100 : false)
+  );
+}
+
+function isQuality(s: StockRow): boolean {
+  return s.price > MIN_PRICE && (s.amount ?? 0) >= MIN_AMOUNT;
+}
+
+function qualityScore(s: StockRow): number {
+  const amountScore = Math.log10(Math.max(s.amount ?? 1, 1)) * 10;
+  const volScore = Math.max(s.vol5 ?? 0, 0) * 0.06;
+  const chgScore = s.chg * 2;
+  return amountScore + volScore + chgScore;
+}
+
+function bottomScore(s: StockRow): number {
+  return Math.max(s.vol5 ?? 0, 0) * 0.5 + s.chg * 2 - Math.max(s.c14 ?? 0, 0);
+}
+
+function formatAmount(value: number | null): string {
+  if (value === null || value <= 0) return "—";
+  if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}億`;
+  return `${Math.round(value / 10_000).toLocaleString()}萬`;
 }
 
 // ─── 子元件：量能進度條 ───────────────────────────────────────────────────────
@@ -301,7 +363,7 @@ function VolBar({ value }: { value: number | null }) {
 
 // ─── 子元件：排序欄位標題 ─────────────────────────────────────────────────────
 
-type SortKey = keyof StockRow;
+type SortKey = keyof StockRow | "rankScore";
 
 function SortTh({
   label, sk, sortKey, sortAsc, onSort, style,
@@ -345,8 +407,9 @@ export default function StockSurge({ onAddToWatchlist }: {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errMsg, setErrMsg] = useState("");
   const [loadNote, setLoadNote] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("chg");
+  const [sortKey, setSortKey] = useState<SortKey>("rankScore");
   const [sortAsc, setSortAsc] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("quality");
   const [dataDate, setDataDate] = useState("");
   const [addedCodes, setAddedCodes] = useState<Set<string>>(new Set());
 
@@ -471,9 +534,26 @@ export default function StockSurge({ onAddToWatchlist }: {
     }
   };
 
-  const sorted = [...stocks].sort((a, b) => {
-    const va = a[sortKey] as number | string | null;
-    const vb = b[sortKey] as number | string | null;
+  const qualityRows = stocks
+    .filter(isQuality)
+    .sort((a, b) => qualityScore(b) - qualityScore(a))
+    .slice(0, LIST_LIMIT);
+  const bottomRows = stocks
+    .filter(isBottom)
+    .sort((a, b) => bottomScore(b) - bottomScore(a))
+    .slice(0, LIST_LIMIT);
+  const modeRows =
+    viewMode === "quality" ? qualityRows :
+    viewMode === "bottom" ? bottomRows :
+    stocks;
+
+  const sorted = [...modeRows].sort((a, b) => {
+    const va = sortKey === "rankScore"
+      ? (viewMode === "bottom" ? bottomScore(a) : qualityScore(a))
+      : a[sortKey] as number | string | null;
+    const vb = sortKey === "rankScore"
+      ? (viewMode === "bottom" ? bottomScore(b) : qualityScore(b))
+      : b[sortKey] as number | string | null;
     if (va === null && vb === null) return 0;
     if (va === null) return 1;
     if (vb === null) return -1;
@@ -488,6 +568,7 @@ export default function StockSurge({ onAddToWatchlist }: {
   stocks.forEach((s) => { indMap[s.ind] = (indMap[s.ind] ?? 0) + 1; });
   const indEntries = Object.entries(indMap).sort((a, b) => b[1] - a[1]);
   const maxInd = indEntries[0]?.[1] ?? 1;
+  const qualityCount = stocks.filter(isQuality).length;
   const bottomCount = stocks.filter(isBottom).length;
   const chartData = indEntries.slice(0, 12).map(([name, count]) => ({ name, count }));
 
@@ -563,6 +644,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 24 }}>
         {[
           { label: "漲幅>5% 股數", value: stocks.length || "—", color: "var(--c-up)" },
+          { label: "精選候選", value: qualityCount || "—", color: "var(--c-blue)" },
           { label: "上市", value: stocks.filter(s => s.market === "上市").length || "—", color: "var(--c-text)" },
           { label: "上櫃", value: stocks.filter(s => s.market === "上櫃").length || "—", color: "var(--c-text)" },
           { label: "🔥 底部啟動", value: bottomCount || "—", color: "var(--c-amber)" },
@@ -623,10 +705,52 @@ export default function StockSurge({ onAddToWatchlist }: {
             </div>
           )}
 
+          {/* 清單模式 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+            <div style={{
+              display: "inline-flex", padding: 3, borderRadius: 8,
+              background: "var(--c-surface)", border: "1px solid var(--c-border)",
+            }}>
+              {[
+                { key: "quality" as const, label: "精選 Top 30", count: Math.min(qualityCount, LIST_LIMIT) },
+                { key: "bottom" as const, label: "底部啟動", count: Math.min(bottomCount, LIST_LIMIT) },
+                { key: "all" as const, label: "全部", count: stocks.length },
+              ].map((item) => {
+                const active = viewMode === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => {
+                      setViewMode(item.key);
+                      setSortKey("rankScore");
+                      setSortAsc(false);
+                    }}
+                    style={{
+                      border: 0, borderRadius: 6, cursor: "pointer",
+                      padding: "7px 12px", fontSize: 12, fontWeight: 600,
+                      background: active ? "var(--c-surface2)" : "transparent",
+                      color: active ? "var(--c-text)" : "var(--c-muted)",
+                    }}
+                  >
+                    {item.label}
+                    <span style={{ marginLeft: 6, color: active ? "var(--c-up)" : "var(--c-muted)" }}>
+                      {item.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--c-muted)" }}>
+              顯示 {sorted.length} / {stocks.length} 檔
+            </div>
+          </div>
+
           {/* 圖例說明 */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
-              當日漲幅超過 5% 個股
+              {viewMode === "quality" && "精選：股價 >10、成交金額 >5,000萬，依成交金額＋量能＋漲幅排序"}
+              {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%，並套用基本成交門檻"}
+              {viewMode === "all" && "全部：當日漲幅超過 5% 個股"}
             </div>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
@@ -653,6 +777,7 @@ export default function StockSurge({ onAddToWatchlist }: {
                     <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 52 }}>市場</th>
                     <SortTh label="股價" sk="price" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 70 }} />
                     <SortTh label="今日漲幅" sk="chg" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
+                    <SortTh label="成交金額" sk="amount" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 90 }} />
                     <SortTh label="14日漲幅" sk="c14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
                     <SortTh label="量能(5日)" sk="vol5" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
                     <SortTh label="量能(14日)" sk="vol14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
@@ -710,6 +835,10 @@ export default function StockSurge({ onAddToWatchlist }: {
                         {/* 今日漲幅 */}
                         <td style={{ padding: "9px 12px", fontSize: 13, fontWeight: 600, color: "var(--c-up)", fontVariantNumeric: "tabular-nums" }}>
                           +{s.chg.toFixed(2)}%
+                        </td>
+                        {/* 成交金額 */}
+                        <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums", color: "var(--c-text)" }}>
+                          {formatAmount(s.amount)}
                         </td>
                         {/* 14日漲幅 */}
                         <td style={{
