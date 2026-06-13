@@ -11,12 +11,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  // 西元年 YYYYMMDD → 民國年 YYYMMDD
-  let twseDate = String(date)
-  if (twseDate.length === 8) {
-    const year = parseInt(twseDate.slice(0, 4)) - 1911
-    twseDate = `${year}${twseDate.slice(4)}`
-  }
+  // TWSE STOCK_DAY expects Gregorian YYYYMMDD.
+  const twseDate = String(date)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)

@@ -117,7 +117,13 @@ export default function App() {
     localStorage.setItem('trendpulse_watchlist', JSON.stringify(items));
   };
 
-  const addToWatchlist = () => {
+  const addToWatchlist = (item?: WatchlistItem) => {
+    if (item) {
+      const exists = watchlist.some((w) => w.symbol === item.symbol);
+      saveWatchlist(exists ? watchlist : [item, ...watchlist]);
+      return;
+    }
+
     if (!data) return;
 
     const failed = Object.entries(data.conditions)
@@ -450,7 +456,7 @@ export default function App() {
                   </div>
                   <h3 className="text-xl font-bold text-slate-900">目前尚無紀錄</h3>
                   <p className="text-slate-500 mt-2 max-w-xs">
-                    快去搜尋感興趣的股票吧！在分析結果頁面點擊「➕ 存入觀察日誌」即可在此查看。
+                    可以從分析結果或每日強勢股點擊「加入」收藏，之後在這裡追蹤。
                   </p>
                 </div>
               ) : (
@@ -598,7 +604,7 @@ export default function App() {
                       <div className="text-right space-y-2">
                         <div className="flex items-center justify-end gap-2">
                           <button 
-                            onClick={addToWatchlist}
+                            onClick={() => addToWatchlist()}
                             className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors mr-2"
                           >
                             <BookmarkPlus className="w-4 h-4" />

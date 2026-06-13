@@ -1,5 +1,5 @@
 // StockSurge v5 - 2026/06/11
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import {
   BarChart,
   Bar,
@@ -41,9 +41,17 @@ const IND_MAP: Record<string, string> = {
   "91": "存託憑證",
 };
 
-function getInd(code?: string | number): string {
-  if (!code) return "其他";
-  return IND_MAP[String(code).padStart(2, "0")] ?? `產業${code}`;
+function normalizeIndustry(value?: string | number): string {
+  if (value === undefined || value === null) return "其他";
+  const raw = String(value).trim();
+  if (!raw) return "其他";
+  if (/^\d+$/.test(raw)) return IND_MAP[raw.padStart(2, "0")] ?? "其他";
+  const cleaned = raw
+    .replace("工業", "")
+    .replace("業", "")
+    .replace("類", "")
+    .trim();
+  return cleaned || "其他";
 }
 
 // ─── API：上市當日行情 ────────────────────────────────────────────────────────
@@ -146,7 +154,7 @@ async function fetchTPEx(): Promise<StockRow[]> {
       vol5: null,
       vol14: null,
       cap: null,
-      ind: s.Industry ?? "其他",
+      ind: normalizeIndustry(s.Industry),
     });
   }
   return rows;
@@ -166,7 +174,7 @@ async function fetchIndustryMap(): Promise<Record<string, { ind: string; cap: nu
         const indCode = String(s["產業別"] ?? "").trim();
         const capRaw = parseFloat(String(s["實收資本額"] ?? "0"));
         const cap = !isNaN(capRaw) && capRaw > 0 ? parseFloat((capRaw / 1e8).toFixed(1)) : null;
-        const ind = IND_MAP[indCode.padStart(2, "0")] ?? "其他";
+        const ind = normalizeIndustry(indCode);
         if (code) map[code] = { ind, cap };
       }
     }
@@ -280,7 +288,7 @@ function SortTh({
   label, sk, sortKey, sortAsc, onSort, style,
 }: {
   label: string; sk: SortKey; sortKey: SortKey; sortAsc: boolean;
-  onSort: (k: SortKey) => void; style?: React.CSSProperties;
+  onSort: (k: SortKey) => void; style?: CSSProperties;
 }) {
   const active = sortKey === sk;
   return (
@@ -411,7 +419,7 @@ export default function StockSurge({ onAddToWatchlist }: {
     onAddToWatchlist({
       id: Date.now().toString(),
       date: new Date().toLocaleString('zh-TW', { hour12: false }),
-      symbol: `${s.code}.TW`,
+      symbol: s.code + (s.market === "上櫃" ? ".TWO" : ".TW"),
       shortName: s.name,
       price: s.price,
       currency: "NT$",
