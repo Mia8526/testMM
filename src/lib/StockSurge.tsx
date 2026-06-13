@@ -188,10 +188,56 @@ async function fetchIndustryMap(): Promise<Record<string, { ind: string; cap: nu
 
 
 
+function calcHistoryMetrics(
+  rows: { close: number; volume: number }[]
+): { c14: number | null; vol5: number | null; vol14: number | null } {
+  const allRows = rows
+    .filter((row) => Number.isFinite(row.close) && row.close > 0)
+    .slice(-40);
+  if (allRows.length < 5) return { c14: null, vol5: null, vol14: null };
+
+  const n = allRows.length;
+  const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+  const p0 = allRows[Math.max(0, n - 14)].close;
+  const p1 = allRows[n - 1].close;
+  const c14 = p0 > 0 ? parseFloat(((p1 - p0) / p0 * 100).toFixed(1)) : null;
+
+  const volumes = allRows.map((row) => row.volume || 0);
+  const recent5 = volumes.slice(-5);
+  const prev5 = volumes.slice(Math.max(0, n - 10), n - 5);
+  const vol5 =
+    prev5.length >= 5 && recent5.length >= 5 && avg(prev5) > 0
+      ? Math.round(((avg(recent5) - avg(prev5)) / avg(prev5)) * 100)
+      : null;
+
+  const recent14 = volumes.slice(-14);
+  const prev14 = volumes.slice(Math.max(0, n - 28), n - 14);
+  const vol14 =
+    prev14.length >= 14 && recent14.length >= 14 && avg(prev14) > 0
+      ? Math.round(((avg(recent14) - avg(prev14)) / avg(prev14)) * 100)
+      : null;
+
+  return { c14, vol5, vol14 };
+}
+
 async function fetchHistory(
-  code: string
+  code: string,
+  market: "上市" | "上櫃"
 ): Promise<{ c14: number | null; vol5: number | null; vol14: number | null }> {
   try {
+    if (market === "上櫃") {
+      const r = await fetch(`/api/yahoo-history?symbol=${code}.TWO`);
+      const d = r.ok ? await r.json() : null;
+      const rows = d?.stat === "OK" && Array.isArray(d.data)
+        ? d.data.map((row: { close: number; volume: number }) => ({
+            close: Number(row.close),
+            volume: Number(row.volume || 0),
+          }))
+        : [];
+      return calcHistoryMetrics(rows);
+    }
+
     const now = new Date();
 
     // 抓本月資料
@@ -210,37 +256,11 @@ async function fetchHistory(
       prevRows = d2?.stat === "OK" && Array.isArray(d2.data) ? d2.data : [];
     }
 
-    // 合併（上月在前，本月在後），取最近 40 筆
-    const allRows = [...prevRows, ...thisRows].slice(-40);
-    if (allRows.length < 5) return { c14: null, vol5: null, vol14: null };
-
-    const n = allRows.length;
-    const parsePrice = (row: string[]) => parseFloat(row[6]?.replace(/,/g, "") ?? "0");
-    const parseVol = (row: string[]) => parseInt(row[2]?.replace(/,/g, "") ?? "0", 10);
-    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
-
-    // 14 日漲幅
-    const p0 = parsePrice(allRows[Math.max(0, n - 14)]);
-    const p1 = parsePrice(allRows[n - 1]);
-    const c14 = p0 > 0 ? parseFloat(((p1 - p0) / p0 * 100).toFixed(1)) : null;
-
-    // 5 日均量變化（近 5 日 vs 前 5 日）
-    const recent5 = allRows.slice(-5).map(parseVol);
-    const prev5 = allRows.slice(Math.max(0, n - 10), n - 5).map(parseVol);
-    const vol5 =
-      prev5.length >= 5 && recent5.length >= 5 && avg(prev5) > 0
-        ? Math.round(((avg(recent5) - avg(prev5)) / avg(prev5)) * 100)
-        : null;
-
-    // 14 日均量變化（近 14 日 vs 前 14 日）
-    const recent14 = allRows.slice(-14).map(parseVol);
-    const prev14 = allRows.slice(Math.max(0, n - 28), n - 14).map(parseVol);
-    const vol14 =
-      prev14.length >= 14 && recent14.length >= 14 && avg(prev14) > 0
-        ? Math.round(((avg(recent14) - avg(prev14)) / avg(prev14)) * 100)
-        : null;
-
-    return { c14, vol5, vol14 };
+    const rows = [...prevRows, ...thisRows].map((row) => ({
+      close: parseFloat(row[6]?.replace(/,/g, "") ?? "0"),
+      volume: parseInt(row[2]?.replace(/,/g, "") ?? "0", 10),
+    }));
+    return calcHistoryMetrics(rows);
   } catch {
     return { c14: null, vol5: null, vol14: null };
   }
@@ -383,20 +403,20 @@ export default function StockSurge({ onAddToWatchlist }: {
       setDataDate(apiDate);
       setStatus("done");
 
-      // 批次抓上市股歷史（每批 5 支，避免過快被限流）
-      const twseOnly = all.filter((s) => s.market === "上市");
-      const total = twseOnly.length;
+      // 批次抓歷史資料（上市走 TWSE；上櫃走 Yahoo Finance .TWO）
+      const historyTargets = all;
+      const total = historyTargets.length;
       const BATCH = 5;
 
       for (let i = 0; i < total; i += BATCH) {
         setLoadNote(`抓取歷史資料 ${Math.min(i + BATCH, total)} / ${total}...`);
-        const batch = twseOnly.slice(i, i + BATCH);
+        const batch = historyTargets.slice(i, i + BATCH);
         await Promise.all(
           batch.map(async (s) => {
-            const hist = await fetchHistory(s.code);
+            const hist = await fetchHistory(s.code, s.market);
             setStocks((prev) =>
               prev.map((r) =>
-                r.code === s.code && r.market === "上市" ? { ...r, ...hist } : r
+                r.code === s.code && r.market === s.market ? { ...r, ...hist } : r
               )
             );
           })
@@ -798,7 +818,7 @@ export default function StockSurge({ onAddToWatchlist }: {
             * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:30 更新。<br />
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
             * 底部啟動條件：14日漲幅 &lt;5% 且 5日量能變化 &gt;100%（資金突然湧入、股價尚在低位）。<br />
-            * 14日歷史資料目前僅支援上市股票；上櫃量能欄顯示「—」為正常。
+            * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>
       )}
