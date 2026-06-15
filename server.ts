@@ -41,6 +41,54 @@ const yahooFinance = getYahooFinance();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+let taiwanNameMapCache: Record<string, string> | null = null;
+
+async function fetchJsonArray(url: string): Promise<Record<string, string>[]> {
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+      },
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return Array.isArray(data) ? data : data?.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function getTaiwanShortName(code: string): Promise<string | null> {
+  if (!taiwanNameMapCache) {
+    const [listed, otc] = await Promise.all([
+      fetchJsonArray('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
+      fetchJsonArray('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O'),
+    ]);
+    const map: Record<string, string> = {};
+
+    for (const row of listed) {
+      const rowCode = String(row['公司代號'] ?? '').trim();
+      const name = String(row['公司簡稱'] ?? '').trim();
+      if (rowCode && name) map[rowCode] = name;
+    }
+
+    for (const row of otc) {
+      const rowCode = String(row.SecuritiesCompanyCode ?? row['公司代號'] ?? '').trim();
+      const rawName = String(row.CompanyName ?? row['公司簡稱'] ?? '').trim();
+      const name = rawName
+        .replace(/股份有限公司$/, '')
+        .replace(/有限公司$/, '')
+        .trim();
+      if (rowCode && name) map[rowCode] = name;
+    }
+
+    taiwanNameMapCache = map;
+  }
+
+  return taiwanNameMapCache[code] ?? null;
+}
+
 async function startServer(): Promise<void> {
   const app = express();
   const PORT = 3000;
@@ -227,8 +275,12 @@ async function startServer(): Promise<void> {
       
       // Name Logic: Taiwan stocks -> Chinese, US stocks -> English
       if (marketType === '上市' || marketType === '上櫃') {
-        // For Taiwan stocks, displayName or shortName usually contains the Chinese name
-        shortName = fetchResult?.quote?.displayName || fetchResult?.quote?.shortName || fetchResult?.quote?.longName || symbol;
+        const pureCode = symbol.split('.')[0];
+        shortName = await getTaiwanShortName(pureCode)
+          || fetchResult?.quote?.displayName
+          || fetchResult?.quote?.shortName
+          || fetchResult?.quote?.longName
+          || symbol;
       } else {
         // For US stocks, shortName/longName are naturally English
         shortName = fetchResult?.quote?.shortName || fetchResult?.quote?.longName || symbol;
