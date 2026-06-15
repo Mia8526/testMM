@@ -41,7 +41,10 @@ const yahooFinance = getYahooFinance();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-let taiwanNameMapCache: Record<string, string> | null = null;
+let listedNameMapCache: Record<string, string> | null = null;
+let listedNameMapPromise: Promise<Record<string, string>> | null = null;
+let otcNameMapCache: Record<string, string> | null = null;
+let otcNameMapPromise: Promise<Record<string, string>> | null = null;
 
 async function fetchJsonArray(url: string): Promise<Record<string, string>[]> {
   try {
@@ -59,41 +62,69 @@ async function fetchJsonArray(url: string): Promise<Record<string, string>[]> {
   }
 }
 
-async function getTaiwanShortName(code: string): Promise<string | null> {
-  if (!taiwanNameMapCache) {
-    const [listed, otc, otcDaily] = await Promise.all([
-      fetchJsonArray('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
-      fetchJsonArray('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O'),
-      fetchJsonArray('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'),
-    ]);
-    const map: Record<string, string> = {};
+async function getListedNameMap(): Promise<Record<string, string>> {
+  if (listedNameMapCache) return listedNameMapCache;
+  if (!listedNameMapPromise) {
+    listedNameMapPromise = (async () => {
+      const listed = await fetchJsonArray('https://openapi.twse.com.tw/v1/opendata/t187ap03_L');
+      const map: Record<string, string> = {};
 
-    for (const row of listed) {
-      const rowCode = String(row['公司代號'] ?? '').trim();
-      const name = String(row['公司簡稱'] ?? '').trim();
-      if (rowCode && name) map[rowCode] = name;
-    }
+      for (const row of listed) {
+        const rowCode = String(row['公司代號'] ?? '').trim();
+        const name = String(row['公司簡稱'] ?? '').trim();
+        if (rowCode && name) map[rowCode] = name;
+      }
 
-    for (const row of otc) {
-      const rowCode = String(row.SecuritiesCompanyCode ?? row['公司代號'] ?? '').trim();
-      const rawName = String(row.CompanyAbbreviation ?? row.CompanyName ?? row['公司簡稱'] ?? '').trim();
-      const name = rawName
-        .replace(/股份有限公司$/, '')
-        .replace(/有限公司$/, '')
-        .trim();
-      if (rowCode && name) map[rowCode] = name;
-    }
-
-    for (const row of otcDaily) {
-      const rowCode = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
-      const name = String(row.CompanyName ?? row.Name ?? '').trim();
-      if (rowCode && name && !map[rowCode]) map[rowCode] = name;
-    }
-
-    taiwanNameMapCache = map;
+      listedNameMapCache = map;
+      return map;
+    })().finally(() => {
+      listedNameMapPromise = null;
+    });
   }
+  return listedNameMapPromise;
+}
 
-  return taiwanNameMapCache[code] ?? null;
+async function getOtcNameMap(): Promise<Record<string, string>> {
+  if (otcNameMapCache) return otcNameMapCache;
+  if (!otcNameMapPromise) {
+    otcNameMapPromise = (async () => {
+      const [otc, otcDaily] = await Promise.all([
+        fetchJsonArray('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O'),
+        fetchJsonArray('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'),
+      ]);
+      const map: Record<string, string> = {};
+
+      for (const row of otc) {
+        const rowCode = String(row.SecuritiesCompanyCode ?? row['公司代號'] ?? '').trim();
+        const rawName = String(row.CompanyAbbreviation ?? row.CompanyName ?? row['公司簡稱'] ?? '').trim();
+        const name = rawName
+          .replace(/股份有限公司$/, '')
+          .replace(/有限公司$/, '')
+          .trim();
+        if (rowCode && name) map[rowCode] = name;
+      }
+
+      for (const row of otcDaily) {
+        const rowCode = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
+        const name = String(row.CompanyName ?? row.Name ?? '').trim();
+        if (rowCode && name && !map[rowCode]) map[rowCode] = name;
+      }
+
+      otcNameMapCache = map;
+      return map;
+    })().finally(() => {
+      otcNameMapPromise = null;
+    });
+  }
+  return otcNameMapPromise;
+}
+
+async function getTaiwanShortName(code: string, marketType: string): Promise<string | null> {
+  const map = marketType === '上櫃'
+    ? await getOtcNameMap()
+    : await getListedNameMap();
+
+  return map[code] ?? null;
 }
 
 async function startServer(): Promise<void> {
@@ -283,7 +314,7 @@ async function startServer(): Promise<void> {
       // Name Logic: Taiwan stocks -> Chinese, US stocks -> English
       if (marketType === '上市' || marketType === '上櫃') {
         const pureCode = symbol.split('.')[0];
-        shortName = await getTaiwanShortName(pureCode)
+        shortName = await getTaiwanShortName(pureCode, marketType)
           || fetchResult?.quote?.displayName
           || fetchResult?.quote?.shortName
           || fetchResult?.quote?.longName
