@@ -482,6 +482,18 @@ async function startServer(): Promise<void> {
       const cond7 = distFromHigh <= 0.30;
 
       const isTemplateMet = cond1 && cond2 && cond3 && cond4 && cond5 && cond6 && cond7;
+      const reasons = [
+        ...(!cond1 ? ["股價未高於 MA150 與 MA200"] : []),
+        ...(!cond2 ? ["150MA 未能高於 200MA"] : []),
+        ...(!cond3 && hasEnoughDataFor200 ? ["200MA 趨勢未能在最近一個月內呈現上揚"] : []),
+        ...(!cond4 ? ["50MA 未能高於 150MA 與 200MA"] : []),
+        ...(!cond5 ? ["股價未高於 50MA"] : []),
+        ...(!cond6 ? ["股價距離 52週低點未達 30%"] : []),
+        ...(!cond7 ? [`股價距離 52週高點超過 30% (目前: ${(distFromHigh * 100).toFixed(1)}%)`] : []),
+      ];
+      const fundamentalStatus = isTemplateMet
+        ? "趨勢模板符合，基本面資料請輔助判斷"
+        : `趨勢模板未完全符合：${reasons.slice(0, 2).join("、")}`;
 
       // Base Detection Logic (Minervini/O'Neil style)
       let baseHigh = 0;
@@ -502,10 +514,10 @@ async function startServer(): Promise<void> {
       let baseLabel = "";
       if (baseDays > 50) {
         baseType = "Major";
-        baseLabel = "🌋 主力大底";
+        baseLabel = "長期整理";
       } else if (baseDays >= 25) {
         baseType = "Normal";
-        baseLabel = "⚖️ 標準基地";
+        baseLabel = "標準整理";
       }
 
       res.json({
@@ -548,8 +560,9 @@ async function startServer(): Promise<void> {
           aboveLow30: cond6,
           nearHigh25: cond7
         },
-        fundamentalStatus: "技術面符合，等待財報數據串接",
+        fundamentalStatus,
         isTemplateMet,
+        reasons,
         epsForward,
         epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
         chartData: data.slice(-200).map((d, i, arr) => {

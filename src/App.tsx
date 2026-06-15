@@ -735,8 +735,10 @@ export default function App() {
                         <span className="text-lg font-semibold text-slate-400">分析報告</span>
                       </div>
                       <div className="flex items-center gap-2 mt-2">
-                        <Info className="w-4 h-4 text-amber-500" />
-                        <span className="text-sm text-amber-600 font-medium">{data.fundamentalStatus}</span>
+                        <Info className={cn("w-4 h-4", data.isTemplateMet ? "text-emerald-500" : "text-amber-500")} />
+                        <span className={cn("text-sm font-medium", data.isTemplateMet ? "text-emerald-600" : "text-amber-600")}>
+                          {data.fundamentalStatus}
+                        </span>
                       </div>
                     </div>
                       <div className="text-right space-y-2">
@@ -805,7 +807,7 @@ export default function App() {
                                   ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
                                   : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
                               )}>
-                                預估EPS {data.epsForward != null ? `$${data.epsForward.toFixed(2)}` : '—'}
+                                預估EPS {data.epsForward != null ? data.epsForward.toFixed(2) : '—'}
                                 {data.epsForward != null && data.epsGrowth &&
                                   parseFloat(data.epsGrowth) >= 20 &&
                                   parseFloat(data.epsGrowth) <= 500 && (
