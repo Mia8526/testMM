@@ -101,6 +101,13 @@ interface WatchlistItem {
   c14?: number | null;
   vol5?: number | null;
   vol14?: number | null;
+  amount?: number | null;
+  surgeMode?: string;
+  isBottomSignal?: boolean;
+  attention?: boolean;
+  disposition?: boolean;
+  flagReason?: string;
+  flagPeriod?: string;
   pivotPrice: number;
   suggestedStopLoss: number;
   ma50Extension: string;
@@ -190,16 +197,25 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "來源", "代號", "名稱", "當前價格", "市場/產業", "強勢資訊", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "來源", "代號", "名稱", "當前價格", "市場/產業", "強勢資訊", "成交金額", "風險標籤", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
-      item.source === 'surge' ? '每日強勢股' : '趨勢分析',
+      item.source === 'surge' ? `每日強勢股${item.surgeMode ? `-${item.surgeMode}` : ''}` : '趨勢分析',
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
       item.source === 'surge' ? `${item.market ?? '-'} / ${item.industry ?? '-'}` : '-',
       item.source === 'surge'
-        ? `今日 ${formatPct(item.todayChange)}; 14日 ${formatPct(item.c14)}; 5日量 ${formatPct(item.vol5)}; 14日量 ${formatPct(item.vol14)}`
+        ? `今日 ${formatPct(item.todayChange)}; 14日 ${formatPct(item.c14)}; 5日量 ${formatPct(item.vol5)}; 14日量 ${formatPct(item.vol14)}${item.isBottomSignal ? '; 底部啟動' : ''}`
+        : '-',
+      item.source === 'surge' ? formatAmount(item.amount) : '-',
+      item.source === 'surge'
+        ? [
+            item.isBottomSignal ? '底部啟動' : '',
+            item.disposition ? '處置' : '',
+            item.attention ? '注意' : '',
+            item.flagPeriod ? `期間 ${item.flagPeriod}` : ''
+          ].filter(Boolean).join('; ') || '-'
         : '-',
       item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
       item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-",
@@ -306,6 +322,12 @@ export default function App() {
     return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   };
 
+  const formatAmount = (value?: number | null) => {
+    if (value === null || value === undefined || value <= 0 || !Number.isFinite(value)) return "-";
+    if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}億`;
+    return `${Math.round(value / 10_000).toLocaleString()}萬`;
+  };
+
   const isSurgeItem = (item: WatchlistItem) => item.source === 'surge';
 
   const renderWatchlistSetup = (item: WatchlistItem) => {
@@ -314,6 +336,7 @@ export default function App() {
         <div className="space-y-1">
           <div className="text-sm font-bold text-rose-600">今日 {formatPct(item.todayChange)}</div>
           <div className="text-[11px] text-slate-500">14日 {formatPct(item.c14)}</div>
+          <div className="text-[11px] text-slate-500">成交 {formatAmount(item.amount)}</div>
         </div>
       );
     }
@@ -347,6 +370,9 @@ export default function App() {
       return (
         <div className="space-y-1">
           <span className="inline-flex rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">每日強勢股</span>
+          {item.surgeMode && (
+            <span className="ml-1 inline-flex rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">{item.surgeMode}</span>
+          )}
           <div className="text-[11px] text-slate-500">{item.market ?? "-"} · {item.industry ?? "產業未分類"}</div>
         </div>
       );
@@ -369,8 +395,26 @@ export default function App() {
     if (isSurgeItem(item)) {
       return (
         <div className="flex flex-wrap gap-1">
+          {item.isBottomSignal && (
+            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold">
+              底部啟動
+            </span>
+          )}
+          {item.disposition && (
+            <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-bold">
+              處置
+            </span>
+          )}
+          {!item.disposition && item.attention && (
+            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold">
+              注意
+            </span>
+          )}
           <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-medium">
             漲幅 {formatPct(item.todayChange)}
+          </span>
+          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+            成交 {formatAmount(item.amount)}
           </span>
           {item.c14 !== null && item.c14 !== undefined && (
             <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">

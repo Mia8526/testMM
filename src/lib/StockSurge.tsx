@@ -13,6 +13,8 @@ import { RefreshCw, TrendingUp, Flame, AlertCircle, BookmarkPlus, Check } from "
 
 // ─── 型別定義 ─────────────────────────────────────────────────────────────────
 
+type StockFlagType = "attention" | "disposition";
+
 interface StockRow {
   code: string;
   name: string;
@@ -25,6 +27,10 @@ interface StockRow {
   vol14: number | null;
   cap: number | null;
   ind: string;
+  attention: boolean;
+  disposition: boolean;
+  flagReason?: string;
+  flagPeriod?: string;
 }
 
 type ViewMode = "quality" | "bottom" | "all";
@@ -75,6 +81,10 @@ function firstNumber(
     if (value !== null) return value;
   }
   return null;
+}
+
+function rowKey(code: string, market: "上市" | "上櫃"): string {
+  return `${market}:${code}`;
 }
 
 // ─── API：上市當日行情 ────────────────────────────────────────────────────────
@@ -136,6 +146,8 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
       vol14: null,
       cap: null,
       ind: "載入中",  // 產業由 fetchIndustryMap 補上
+      attention: false,
+      disposition: false,
     });
   }
   return { rows, date };
@@ -190,6 +202,8 @@ async function fetchTPEx(): Promise<StockRow[]> {
       vol14: null,
       cap: null,
       ind: normalizeIndustry(s.Industry),
+      attention: false,
+      disposition: false,
     });
   }
   return rows;
@@ -218,6 +232,48 @@ async function fetchIndustryMap(): Promise<Record<string, { ind: string; cap: nu
     return map;
   } catch (e) {
     console.error("[IND DEBUG] 產業對照失敗:", e);
+    return {};
+  }
+}
+
+async function fetchStockFlagMap(): Promise<Record<string, {
+  attention: boolean;
+  disposition: boolean;
+  reason?: string;
+  period?: string;
+}>> {
+  try {
+    const res = await fetch("/api/stock-flags");
+    if (!res.ok) return {};
+    const data: {
+      code: string;
+      market: "上市" | "上櫃";
+      type: StockFlagType;
+      reason?: string;
+      period?: string;
+    }[] = await res.json();
+    const map: Record<string, {
+      attention: boolean;
+      disposition: boolean;
+      reason?: string;
+      period?: string;
+    }> = {};
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (!item.code || !item.market) continue;
+        const key = rowKey(String(item.code).trim(), item.market);
+        const current = map[key] ?? { attention: false, disposition: false };
+        if (item.type === "attention") current.attention = true;
+        if (item.type === "disposition") current.disposition = true;
+        current.reason = current.reason || item.reason;
+        current.period = current.period || item.period;
+        map[key] = current;
+      }
+    }
+
+    return map;
+  } catch {
     return {};
   }
 }
@@ -314,7 +370,12 @@ function isBottom(s: StockRow): boolean {
 }
 
 function isQuality(s: StockRow): boolean {
-  return s.price > MIN_PRICE && (s.amount ?? 0) >= MIN_AMOUNT;
+  return (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    !s.attention &&
+    !s.disposition
+  );
 }
 
 function qualityScore(s: StockRow): number {
@@ -332,6 +393,28 @@ function formatAmount(value: number | null): string {
   if (value === null || value <= 0) return "—";
   if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}億`;
   return `${Math.round(value / 10_000).toLocaleString()}萬`;
+}
+
+function RiskBadge({ type, title }: { type: StockFlagType; title?: string }) {
+  const isDisposition = type === "disposition";
+  return (
+    <span
+      title={title}
+      style={{
+        marginLeft: 6,
+        display: "inline-flex",
+        alignItems: "center",
+        fontSize: 10,
+        padding: "1px 6px",
+        borderRadius: 4,
+        background: isDisposition ? "rgba(240,92,92,0.16)" : "rgba(245,158,11,0.16)",
+        color: isDisposition ? "var(--c-up)" : "var(--c-amber)",
+        border: `1px solid ${isDisposition ? "rgba(240,92,92,0.28)" : "rgba(245,158,11,0.28)"}`,
+      }}
+    >
+      {isDisposition ? "處置" : "注意"}
+    </span>
+  );
 }
 
 // ─── 子元件：量能進度條 ───────────────────────────────────────────────────────
@@ -398,6 +481,8 @@ export default function StockSurge({ onAddToWatchlist }: {
     source?: 'analysis' | 'surge'; price: number; currency: string;
     market?: string; industry?: string; todayChange?: number | null;
     c14?: number | null; vol5?: number | null; vol14?: number | null;
+    amount?: number | null; surgeMode?: string; isBottomSignal?: boolean;
+    attention?: boolean; disposition?: boolean; flagReason?: string; flagPeriod?: string;
     pivotPrice: number;
     suggestedStopLoss: number; ma50Extension: string;
     extensionText: string; failedConditions: string[];
@@ -464,6 +549,21 @@ export default function StockSurge({ onAddToWatchlist }: {
         return;
       }
 
+      setLoadNote("比對注意股與處置股...");
+      const flagMap = await fetchStockFlagMap();
+      all = all.map((s) => {
+        const flag = flagMap[rowKey(s.code, s.market)];
+        return flag
+          ? {
+              ...s,
+              attention: flag.attention,
+              disposition: flag.disposition,
+              flagReason: flag.reason,
+              flagPeriod: flag.period,
+            }
+          : s;
+      });
+
       all.sort((a, b) => b.chg - a.chg);
       setStocks(all);
       setDataDate(apiDate);
@@ -515,6 +615,13 @@ export default function StockSurge({ onAddToWatchlist }: {
       c14: s.c14,
       vol5: s.vol5,
       vol14: s.vol14,
+      amount: s.amount,
+      surgeMode: viewMode === "quality" ? "精選" : viewMode === "bottom" ? "底部啟動" : "全部",
+      isBottomSignal: isBottom(s),
+      attention: s.attention,
+      disposition: s.disposition,
+      flagReason: s.flagReason,
+      flagPeriod: s.flagPeriod,
       pivotPrice: 0,
       suggestedStopLoss: 0,
       ma50Extension: "0",
@@ -522,7 +629,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       failedConditions: [],
     });
     setAddedCodes(prev => new Set(prev).add(s.code));
-  }, [onAddToWatchlist]);
+  }, [onAddToWatchlist, viewMode]);
 
   // ── 排序 ─────────────────────────────────────────────────────────────────
 
@@ -570,6 +677,8 @@ export default function StockSurge({ onAddToWatchlist }: {
   const maxInd = indEntries[0]?.[1] ?? 1;
   const qualityCount = stocks.filter(isQuality).length;
   const bottomCount = stocks.filter(isBottom).length;
+  const attentionCount = stocks.filter((s) => s.attention).length;
+  const dispositionCount = stocks.filter((s) => s.disposition).length;
   const chartData = indEntries.slice(0, 12).map(([name, count]) => ({ name, count }));
 
   // ── CSS 變數（深色金融風格）────────────────────────────────────────────────
@@ -648,6 +757,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           { label: "上市", value: stocks.filter(s => s.market === "上市").length || "—", color: "var(--c-text)" },
           { label: "上櫃", value: stocks.filter(s => s.market === "上櫃").length || "—", color: "var(--c-text)" },
           { label: "🔥 底部啟動", value: bottomCount || "—", color: "var(--c-amber)" },
+          { label: "注意/處置", value: attentionCount + dispositionCount || "—", color: "var(--c-amber)" },
           { label: "涵蓋產業", value: indEntries.length || "—", color: "var(--c-dn)" },
         ].map((m) => (
           <div key={m.label} style={{
@@ -749,7 +859,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
               {viewMode === "quality" && "精選：股價 >10、成交金額 >5,000萬，依成交金額＋量能＋漲幅排序"}
-              {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%，並套用基本成交門檻"}
+              {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%，注意/處置只標示不排除"}
               {viewMode === "all" && "全部：當日漲幅超過 5% 個股"}
             </div>
             <span style={{
@@ -759,6 +869,13 @@ export default function StockSurge({ onAddToWatchlist }: {
             }}>
               <Flame size={11} />
               底部啟動：14日漲幅 &lt;5% 且 5日量能 &gt;100%
+            </span>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: 11, padding: "2px 8px", borderRadius: 5,
+              background: "rgba(240,92,92,0.10)", color: "var(--c-up)",
+            }}>
+              精選清單已排除注意/處置股
             </span>
             <span style={{ fontSize: 11, color: "var(--c-muted)" }}>點欄位標題可排序</span>
           </div>
@@ -808,6 +925,12 @@ export default function StockSurge({ onAddToWatchlist }: {
                         {/* 股名 */}
                         <td style={{ padding: "9px 12px", fontSize: 13, whiteSpace: "nowrap" }}>
                           {s.name}
+                          {s.disposition && (
+                            <RiskBadge type="disposition" title={s.flagPeriod ? `處置期間：${s.flagPeriod}` : s.flagReason} />
+                          )}
+                          {!s.disposition && s.attention && (
+                            <RiskBadge type="attention" title={s.flagReason} />
+                          )}
                           {bottom && (
                             <span style={{
                               marginLeft: 6, display: "inline-flex", alignItems: "center", gap: 3,
