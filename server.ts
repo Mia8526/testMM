@@ -367,6 +367,7 @@ async function startServer(): Promise<void> {
       // [FIXED] 量縮改為必要條件，門檻從 0.8 收緊至 0.75
       const isVolumeContracted = vol5 > 0 && vol20 > 0 ? vol5 < vol20 * 0.75 : false;
       const currentVolume = volumes[volumes.length - 1];
+      const isMomentumStock = vol5 > 0 && vol20 > 0 && vol5 > vol20 * 1.5;
 
       const last250Days = data.slice(-250);
       const high52w = Math.max(...last250Days.map(d => d.high));
@@ -485,15 +486,18 @@ async function startServer(): Promise<void> {
 
       // 3. Extension Check
       const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
-      const isExtended = currentPrice > pivotPrice * 1.25 || ma50Extension > 20;
+      const breakoutPrice = vcpHigh || pivotPrice;
+      const isExtended = breakoutPrice > 0
+        ? currentPrice > breakoutPrice * 1.25 || ma50Extension > 20
+        : ma50Extension > 20;
 
       const localPivot = vcpHigh || 0;
       const isLocalPivotExtended = isExtended;
 
-      const buyZoneMax = pivotPrice > 0 ? pivotPrice * 1.05 : 0;
-      const suggestedStopLoss = pivotPrice > 0 ? pivotPrice * 0.92 : 0;
-      const priceGap = pivotPrice > 0 ? pivotPrice - currentPrice : 0;
-      const distFromPivot = pivotPrice > 0 ? ((currentPrice - pivotPrice) / pivotPrice) * 100 : 0;
+      const buyZoneMax = breakoutPrice > 0 ? breakoutPrice * 1.05 : 0;
+      const suggestedStopLoss = breakoutPrice > 0 ? breakoutPrice * 0.92 : 0;
+      const priceGap = breakoutPrice > 0 ? breakoutPrice - currentPrice : 0;
+      const distFromPivot = breakoutPrice > 0 ? ((currentPrice - breakoutPrice) / breakoutPrice) * 100 : 0;
 
       // [FIXED] VCP 狀態更細緻
       let vcpStatus = "整理中";
@@ -578,7 +582,9 @@ async function startServer(): Promise<void> {
         localPivot,
         isLocalPivotExtended,
         vcpStatus,
-        pivotPrice,
+        isMomentumStock,
+        basePivotPrice: pivotPrice,
+        pivotPrice: breakoutPrice,
         buyZoneMax,
         suggestedStopLoss,
         priceGap,

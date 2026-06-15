@@ -197,7 +197,7 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "來源", "代號", "名稱", "當前價格", "市場/產業", "強勢資訊", "成交金額", "風險標籤", "突破目標價", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "來源", "代號", "名稱", "當前價格", "市場/產業", "強勢資訊", "成交金額", "風險標籤", "突破買點", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
       item.source === 'surge' ? `每日強勢股${item.surgeMode ? `-${item.surgeMode}` : ''}` : '趨勢分析',
@@ -861,16 +861,20 @@ export default function App() {
                       <h3 className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider mb-6">🎯 樞紐雷達核心資訊</h3>
                       <div className="space-y-5 sm:space-y-6 max-w-lg mx-auto">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
-                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">突破目標價</span>
+                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">突破買點</span>
                           <span className="text-lg sm:text-xl font-black text-blue-600">
                             NT$ {data.pivotPrice > 0 ? data.pivotPrice.toFixed(2) : '-'}
                           </span>
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0 py-4 border-y border-slate-50">
                           <span className="text-sm text-slate-500 font-medium whitespace-nowrap">最佳進場區</span>
-                          {!data.isExtended ? (
+                          {data.pivotPrice <= 0 ? (
+                            <span className="text-sm px-3 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg border border-amber-200">
+                              尚未形成明確平台
+                            </span>
+                          ) : !data.isExtended ? (
                             <span className="text-lg sm:text-xl font-black text-emerald-600">
-                              NT$ {data.pivotPrice?.toFixed(2)} ~ NT$ {(data.pivotPrice * 1.05)?.toFixed(2)}
+                              NT$ {data.pivotPrice.toFixed(2)} ~ NT$ {data.buyZoneMax.toFixed(2)}
                             </span>
                           ) : data.isMomentumStock ? (
                             <span className="text-sm px-3 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg border border-amber-200">
@@ -883,11 +887,15 @@ export default function App() {
                           )}
                         </div>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
-                           <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損 (-8%)</span>
-                           {data.isExtended && !data.isMomentumStock ? (
+                           <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損區 (-8%)</span>
+                           {data.pivotPrice <= 0 ? (
+                             <span className="text-sm text-slate-400 font-medium">— 等平台形成</span>
+                           ) : data.isExtended && !data.isMomentumStock ? (
                              <span className="text-sm text-slate-400 font-medium">— 等回撤後重新評估</span>
                            ) : (
-                             <span className="text-lg sm:text-xl font-black text-red-700">NT$ {(data.pivotPrice * 0.92)?.toFixed(2)}</span>
+                             <span className="text-lg sm:text-xl font-black text-red-700">
+                               NT$ {data.suggestedStopLoss.toFixed(2)} ~ NT$ {(data.buyZoneMax * 0.92).toFixed(2)}
+                             </span>
                            )}
                         </div>
                       </div>

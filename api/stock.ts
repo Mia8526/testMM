@@ -492,16 +492,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Extension Check
     const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
-    const isExtended = currentPrice > pivotPrice * 1.25 || ma50Extension > 20;
+    const breakoutPrice = vcpHigh || pivotPrice;
+    const isExtended = breakoutPrice > 0
+      ? currentPrice > breakoutPrice * 1.25 || ma50Extension > 20
+      : ma50Extension > 20;
 
     // Use localPivot for backward compatibility if needed, but we prefer vcpHigh
     const localPivot = vcpHigh || 0;
     const isLocalPivotExtended = isExtended;
 
-    const buyZoneMax = pivotPrice * 1.05;
-    const suggestedStopLoss = pivotPrice * 0.92;
-    const priceGap = pivotPrice - currentPrice;
-    const distFromPivot = ((currentPrice - pivotPrice) / pivotPrice) * 100;
+    const buyZoneMax = breakoutPrice > 0 ? breakoutPrice * 1.05 : 0;
+    const suggestedStopLoss = breakoutPrice > 0 ? breakoutPrice * 0.92 : 0;
+    const priceGap = breakoutPrice > 0 ? breakoutPrice - currentPrice : 0;
+    const distFromPivot = breakoutPrice > 0 ? ((currentPrice - breakoutPrice) / breakoutPrice) * 100 : 0;
 
     // Basic VCP status for API consistency
     let vcpStatus = "整理中";
@@ -585,7 +588,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       localPivot,
       isLocalPivotExtended,
       vcpStatus,
-      pivotPrice,
+      basePivotPrice: pivotPrice,
+      pivotPrice: breakoutPrice,
       buyZoneMax,
       suggestedStopLoss,
       priceGap,
