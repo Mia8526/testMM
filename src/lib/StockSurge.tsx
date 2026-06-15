@@ -38,6 +38,86 @@ type ViewMode = "quality" | "bottom" | "all";
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
+const CACHE_KEY = "trendpulse_surge_cache_v2";
+const CACHE_VERSION = 2;
+const REFRESH_HOUR = 15;
+const REFRESH_MINUTE = 45;
+
+interface SurgeCache {
+  version: number;
+  savedAt: string;
+  dataDate: string;
+  stocks: StockRow[];
+}
+
+function getLocalDateKey(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function isAfterRefreshTime(date = new Date()): boolean {
+  const minutes = date.getHours() * 60 + date.getMinutes();
+  return minutes >= REFRESH_HOUR * 60 + REFRESH_MINUTE;
+}
+
+function isWeekend(date = new Date()): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+function readSurgeCache(): SurgeCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SurgeCache;
+    if (
+      parsed?.version !== CACHE_VERSION ||
+      !parsed.savedAt ||
+      !Array.isArray(parsed.stocks)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSurgeCache(cache: SurgeCache): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // localStorage 可能被瀏覽器隱私模式阻擋，忽略即可。
+  }
+}
+
+function shouldUseCache(cache: SurgeCache | null, forceRefresh: boolean): boolean {
+  if (!cache || forceRefresh) return false;
+  const savedAt = new Date(cache.savedAt);
+  const savedDate = getLocalDateKey(savedAt);
+  if (savedDate === getLocalDateKey()) {
+    return !isAfterRefreshTime() || isAfterRefreshTime(savedAt);
+  }
+  if (isWeekend()) return true;
+  return !isAfterRefreshTime();
+}
+
+function formatCacheTime(iso: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-TW", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 // ─── 產業代碼對照表 ───────────────────────────────────────────────────────────
 
@@ -496,16 +576,40 @@ export default function StockSurge({ onAddToWatchlist }: {
   const [sortAsc, setSortAsc] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("quality");
   const [dataDate, setDataDate] = useState("");
+  const [cacheSavedAt, setCacheSavedAt] = useState("");
+  const [usingCache, setUsingCache] = useState(false);
   const [addedCodes, setAddedCodes] = useState<Set<string>>(new Set());
 
   // ── 主要資料載入邏輯 ──────────────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
-    setStatus("loading");
-    setStocks([]);
+  const loadData = useCallback(async (forceRefresh = false) => {
+    const cached = readSurgeCache();
+
     setErrMsg("");
-    setDataDate("");
-    setLoadNote("連線台灣證交所與櫃買中心...");
+
+    if (cached && !forceRefresh) {
+      setStocks(cached.stocks);
+      setDataDate(cached.dataDate);
+      setCacheSavedAt(cached.savedAt);
+      setUsingCache(true);
+      setStatus("done");
+
+      if (shouldUseCache(cached, false)) {
+        setLoadNote(isAfterRefreshTime() || isWeekend()
+          ? "使用暫存資料；手動重新整理可強制更新。"
+          : "使用暫存資料；盤後 15:45 後會自動更新。");
+        return;
+      }
+
+      setLoadNote("暫存已過期，正在更新今日盤後資料...");
+    } else {
+      setStatus("loading");
+      setStocks([]);
+      setDataDate("");
+      setCacheSavedAt("");
+      setUsingCache(false);
+      setLoadNote("連線台灣證交所與櫃買中心...");
+    }
 
     try {
       const [twseRes, tpexRes, indRes] = await Promise.allSettled([
@@ -540,12 +644,21 @@ export default function StockSurge({ onAddToWatchlist }: {
         const now = new Date();
         const day = now.getDay();
         const isWeekend = day === 0 || day === 6;
-        const isBeforeClose = now.getHours() < 15 || (now.getHours() === 15 && now.getMinutes() < 30);
+        const isBeforeClose = !isAfterRefreshTime(now);
         let msg = "今日無漲幅超過 5% 的股票。";
         if (isWeekend) msg = "今日為週末非交易日，顯示最近一個交易日資料。若仍無資料，請稍後再試。";
-        else if (isBeforeClose) msg = "盤後資料約 15:30 後更新，目前顯示前一交易日資料。";
+        else if (isBeforeClose) msg = "盤後資料約 15:45 後更新，目前顯示前一交易日資料。";
         setStatus("error");
         setErrMsg(msg);
+        if (cached) {
+          setStocks(cached.stocks);
+          setDataDate(cached.dataDate);
+          setCacheSavedAt(cached.savedAt);
+          setUsingCache(true);
+          setStatus("done");
+          setErrMsg("");
+          setLoadNote("今日資料尚未取回，先顯示暫存資料。");
+        }
         return;
       }
 
@@ -565,9 +678,11 @@ export default function StockSurge({ onAddToWatchlist }: {
       });
 
       all.sort((a, b) => b.chg - a.chg);
+      let enriched = all;
       setStocks(all);
       setDataDate(apiDate);
       setStatus("done");
+      setUsingCache(false);
 
       // 批次抓歷史資料（上市走 TWSE；上櫃走 Yahoo Finance .TWO）
       const historyTargets = all;
@@ -577,21 +692,41 @@ export default function StockSurge({ onAddToWatchlist }: {
       for (let i = 0; i < total; i += BATCH) {
         setLoadNote(`抓取歷史資料 ${Math.min(i + BATCH, total)} / ${total}...`);
         const batch = historyTargets.slice(i, i + BATCH);
-        await Promise.all(
+        const histResults = await Promise.all(
           batch.map(async (s) => {
             const hist = await fetchHistory(s.code, s.market);
-            setStocks((prev) =>
-              prev.map((r) =>
-                r.code === s.code && r.market === s.market ? { ...r, ...hist } : r
-              )
-            );
+            return { code: s.code, market: s.market, hist };
           })
         );
+        enriched = enriched.map((row) => {
+          const found = histResults.find((item) => item.code === row.code && item.market === row.market);
+          return found ? { ...row, ...found.hist } : row;
+        });
+        setStocks(enriched);
         // 小延遲避免 rate limit
         if (i + BATCH < total) await new Promise((r) => setTimeout(r, 300));
       }
+      const savedAt = new Date().toISOString();
+      writeSurgeCache({
+        version: CACHE_VERSION,
+        savedAt,
+        dataDate: apiDate,
+        stocks: enriched,
+      });
+      setCacheSavedAt(savedAt);
+      setUsingCache(false);
       setLoadNote("");
     } catch (e) {
+      if (cached) {
+        setStocks(cached.stocks);
+        setDataDate(cached.dataDate);
+        setCacheSavedAt(cached.savedAt);
+        setUsingCache(true);
+        setStatus("done");
+        setErrMsg("");
+        setLoadNote("更新失敗，先顯示暫存資料。");
+        return;
+      }
       setStatus("error");
       setErrMsg(e instanceof Error ? e.message : "未知錯誤，請稍後再試");
     }
@@ -680,6 +815,11 @@ export default function StockSurge({ onAddToWatchlist }: {
   const attentionCount = stocks.filter((s) => s.attention).length;
   const dispositionCount = stocks.filter((s) => s.disposition).length;
   const chartData = indEntries.slice(0, 12).map(([name, count]) => ({ name, count }));
+  const isRefreshing =
+    status === "loading" ||
+    loadNote.includes("連線") ||
+    loadNote.includes("正在") ||
+    loadNote.includes("抓取");
 
   // ── CSS 變數（深色金融風格）────────────────────────────────────────────────
 
@@ -731,11 +871,12 @@ export default function StockSurge({ onAddToWatchlist }: {
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "0.02em" }}>每日強勢股追蹤</div>
             <div style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 2 }}>
               {dataDate ? `資料日期：${dataDate}` : "載入中..."} · 上市＋上櫃 · 漲幅 &gt;5%
+              {cacheSavedAt ? ` · ${usingCache ? "暫存" : "更新"}：${formatCacheTime(cacheSavedAt)}` : ""}
             </div>
           </div>
         </div>
         <button
-          onClick={loadData}
+          onClick={() => loadData(true)}
           disabled={status === "loading"}
           style={{
             display: "flex", alignItems: "center", gap: 6,
@@ -792,7 +933,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           <AlertCircle size={26} color="var(--c-up)" />
           <div style={{ fontSize: 14, color: "var(--c-muted)" }}>{errMsg}</div>
           <button
-            onClick={loadData}
+            onClick={() => loadData(true)}
             style={{
               marginTop: 8, padding: "6px 18px", borderRadius: 8, fontSize: 13,
               background: "var(--c-surface2)", border: "1px solid var(--c-border)",
@@ -810,7 +951,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           {/* 進度提示 */}
           {loadNote && (
             <div style={{ fontSize: 12, color: "var(--c-muted)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-              <RefreshCw size={11} className="spin" />
+              <RefreshCw size={11} className={isRefreshing ? "spin" : ""} />
               {loadNote}
             </div>
           )}
@@ -1077,7 +1218,8 @@ export default function StockSurge({ onAddToWatchlist }: {
 
           {/* 備注 */}
           <div style={{ fontSize: 11, color: "var(--c-muted)", lineHeight: 1.9 }}>
-            * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:30 更新。<br />
+            * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:45 更新。<br />
+            * 頁面會先使用瀏覽器暫存；平日 15:45 後自動更新，按「重新整理」可立即強制重抓。<br />
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
             * 底部啟動條件：14日漲幅 &lt;5% 且 5日量能變化 &gt;100%（資金突然湧入、股價尚在低位）。<br />
             * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
