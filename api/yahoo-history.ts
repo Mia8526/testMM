@@ -36,6 +36,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .filter((d: any) => d.close !== null && d.close !== undefined)
           .map((d: any) => ({
             date: d.date,
+            high: d.high ?? d.close,
+            low: d.low ?? d.close,
             close: d.close,
             volume: d.volume ?? 0,
           }))

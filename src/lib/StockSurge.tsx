@@ -25,6 +25,7 @@ interface StockRow {
   c14: number | null;
   vol5: number | null;
   vol14: number | null;
+  range10: number | null;
   cap: number | null;
   ind: string;
   attention: boolean;
@@ -38,8 +39,9 @@ type ViewMode = "quality" | "bottom" | "all";
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
-const CACHE_KEY = "trendpulse_surge_cache_v2";
-const CACHE_VERSION = 2;
+const MAX_BOTTOM_RANGE10 = 15;
+const CACHE_KEY = "trendpulse_surge_cache_v3";
+const CACHE_VERSION = 3;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -224,6 +226,7 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
       c14: null,
       vol5: null,
       vol14: null,
+      range10: null,
       cap: null,
       ind: "載入中",  // 產業由 fetchIndustryMap 補上
       attention: false,
@@ -280,6 +283,7 @@ async function fetchTPEx(): Promise<StockRow[]> {
       c14: null,
       vol5: null,
       vol14: null,
+      range10: null,
       cap: null,
       ind: normalizeIndustry(s.Industry),
       attention: false,
@@ -361,12 +365,12 @@ async function fetchStockFlagMap(): Promise<Record<string, {
 
 
 function calcHistoryMetrics(
-  rows: { close: number; volume: number }[]
-): { c14: number | null; vol5: number | null; vol14: number | null } {
+  rows: { close: number; volume: number; high?: number; low?: number }[]
+): { c14: number | null; vol5: number | null; vol14: number | null; range10: number | null } {
   const allRows = rows
     .filter((row) => Number.isFinite(row.close) && row.close > 0)
     .slice(-40);
-  if (allRows.length < 5) return { c14: null, vol5: null, vol14: null };
+  if (allRows.length < 5) return { c14: null, vol5: null, vol14: null, range10: null };
 
   const n = allRows.length;
   const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -390,21 +394,34 @@ function calcHistoryMetrics(
       ? Math.round(((avg(recent14) - avg(prev14)) / avg(prev14)) * 100)
       : null;
 
-  return { c14, vol5, vol14 };
+  const recent10 = allRows.slice(-10);
+  const range10 = recent10.length >= 10
+    ? (() => {
+        const highs = recent10.map((row) => Number.isFinite(row.high) ? row.high as number : row.close);
+        const lows = recent10.map((row) => Number.isFinite(row.low) ? row.low as number : row.close);
+        const high = Math.max(...highs);
+        const low = Math.min(...lows);
+        return low > 0 ? parseFloat((((high - low) / low) * 100).toFixed(1)) : null;
+      })()
+    : null;
+
+  return { c14, vol5, vol14, range10 };
 }
 
 async function fetchHistory(
   code: string,
   market: "上市" | "上櫃"
-): Promise<{ c14: number | null; vol5: number | null; vol14: number | null }> {
+): Promise<{ c14: number | null; vol5: number | null; vol14: number | null; range10: number | null }> {
   try {
     if (market === "上櫃") {
       const r = await fetch(`/api/yahoo-history?symbol=${code}.TWO`);
       const d = r.ok ? await r.json() : null;
       const rows = d?.stat === "OK" && Array.isArray(d.data)
-        ? d.data.map((row: { close: number; volume: number }) => ({
+        ? d.data.map((row: { close: number; volume: number; high?: number; low?: number }) => ({
             close: Number(row.close),
             volume: Number(row.volume || 0),
+            high: Number(row.high || row.close),
+            low: Number(row.low || row.close),
           }))
         : [];
       return calcHistoryMetrics(rows);
@@ -429,12 +446,14 @@ async function fetchHistory(
     }
 
     const rows = [...prevRows, ...thisRows].map((row) => ({
+      high: parseFloat(row[4]?.replace(/,/g, "") ?? "0"),
+      low: parseFloat(row[5]?.replace(/,/g, "") ?? "0"),
       close: parseFloat(row[6]?.replace(/,/g, "") ?? "0"),
-      volume: parseInt(row[2]?.replace(/,/g, "") ?? "0", 10),
+      volume: parseInt(row[1]?.replace(/,/g, "") ?? "0", 10),
     }));
     return calcHistoryMetrics(rows);
   } catch {
-    return { c14: null, vol5: null, vol14: null };
+    return { c14: null, vol5: null, vol14: null, range10: null };
   }
 }
 
@@ -445,7 +464,8 @@ function isBottom(s: StockRow): boolean {
     s.price > MIN_PRICE &&
     (s.amount ?? 0) >= MIN_AMOUNT &&
     (s.c14 !== null ? s.c14 < 5 : false) &&
-    (s.vol5 !== null ? s.vol5 > 100 : false)
+    (s.vol5 !== null ? s.vol5 > 100 : false) &&
+    (s.range10 !== null ? s.range10 <= MAX_BOTTOM_RANGE10 : false)
   );
 }
 
@@ -1000,7 +1020,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
               {viewMode === "quality" && "精選：股價 >10、成交金額 >5,000萬，依成交金額＋量能＋漲幅排序"}
-              {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%，注意/處置只標示不排除"}
+              {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%、10日震幅 <15%，注意/處置只標示不排除"}
               {viewMode === "all" && "全部：當日漲幅超過 5% 個股"}
             </div>
             <span style={{
@@ -1009,7 +1029,7 @@ export default function StockSurge({ onAddToWatchlist }: {
               background: "rgba(245,158,11,0.12)", color: "var(--c-amber)",
             }}>
               <Flame size={11} />
-              底部啟動：14日漲幅 &lt;5% 且 5日量能 &gt;100%
+              底部啟動：14日漲幅 &lt;5%、5日量能 &gt;100%、10日震幅 &lt;15%
             </span>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
@@ -1221,7 +1241,7 @@ export default function StockSurge({ onAddToWatchlist }: {
             * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:45 更新。<br />
             * 頁面會先使用瀏覽器暫存；平日 15:45 後自動更新，按「重新整理」可立即強制重抓。<br />
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
-            * 底部啟動條件：14日漲幅 &lt;5% 且 5日量能變化 &gt;100%（資金突然湧入、股價尚在低位）。<br />
+            * 底部啟動條件：14日漲幅 &lt;5%、5日量能變化 &gt;100%、10日震幅 &lt;15%（排除高檔劇烈反彈）。<br />
             * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>
