@@ -34,7 +34,8 @@ interface StockRow {
   flagPeriod?: string;
 }
 
-type ViewMode = "quality" | "bottom" | "all";
+type ViewMode = "quality" | "bottom" | "rebound" | "all";
+type SurgePattern = "底部啟動" | "放量轉強" | "高波動反彈" | null;
 
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
@@ -469,6 +470,32 @@ function isBottom(s: StockRow): boolean {
   );
 }
 
+function getSurgePattern(s: StockRow): SurgePattern {
+  if (isBottom(s)) return "底部啟動";
+  if (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    (s.vol5 !== null ? s.vol5 > 100 : false) &&
+    (s.c14 !== null ? s.c14 < 5 : false) &&
+    (s.range10 !== null ? s.range10 > MAX_BOTTOM_RANGE10 : false)
+  ) {
+    return "高波動反彈";
+  }
+  if (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    (s.vol5 !== null ? s.vol5 > 100 : false)
+  ) {
+    return "放量轉強";
+  }
+  return null;
+}
+
+function isVolumeRebound(s: StockRow): boolean {
+  const pattern = getSurgePattern(s);
+  return pattern === "放量轉強" || pattern === "高波動反彈";
+}
+
 function isQuality(s: StockRow): boolean {
   return (
     s.price > MIN_PRICE &&
@@ -487,6 +514,11 @@ function qualityScore(s: StockRow): number {
 
 function bottomScore(s: StockRow): number {
   return Math.max(s.vol5 ?? 0, 0) * 0.5 + s.chg * 2 - Math.max(s.c14 ?? 0, 0);
+}
+
+function reboundScore(s: StockRow): number {
+  const volatilityPenalty = Math.max((s.range10 ?? 0) - MAX_BOTTOM_RANGE10, 0) * 2;
+  return Math.max(s.vol5 ?? 0, 0) * 0.35 + s.chg * 3 - volatilityPenalty;
 }
 
 function formatAmount(value: number | null): string {
@@ -513,6 +545,47 @@ function RiskBadge({ type, title }: { type: StockFlagType; title?: string }) {
       }}
     >
       {isDisposition ? "處置" : "注意"}
+    </span>
+  );
+}
+
+function PatternBadge({ pattern }: { pattern: SurgePattern }) {
+  if (!pattern) return null;
+  const styleByPattern: Record<Exclude<SurgePattern, null>, {
+    bg: string;
+    color: string;
+    border: string;
+  }> = {
+    "底部啟動": {
+      bg: "rgba(245,158,11,0.15)",
+      color: "var(--c-amber)",
+      border: "rgba(245,158,11,0.28)",
+    },
+    "放量轉強": {
+      bg: "rgba(96,165,250,0.14)",
+      color: "var(--c-blue)",
+      border: "rgba(96,165,250,0.28)",
+    },
+    "高波動反彈": {
+      bg: "rgba(240,92,92,0.12)",
+      color: "var(--c-up)",
+      border: "rgba(240,92,92,0.26)",
+    },
+  };
+  const style = styleByPattern[pattern];
+  return (
+    <span style={{
+      marginLeft: 6,
+      display: "inline-flex",
+      alignItems: "center",
+      fontSize: 10,
+      padding: "1px 6px",
+      borderRadius: 4,
+      background: style.bg,
+      color: style.color,
+      border: `1px solid ${style.border}`,
+    }}>
+      {pattern}
     </span>
   );
 }
@@ -771,7 +844,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       vol5: s.vol5,
       vol14: s.vol14,
       amount: s.amount,
-      surgeMode: viewMode === "quality" ? "精選" : viewMode === "bottom" ? "底部啟動" : "全部",
+      surgeMode: getSurgePattern(s) ?? (viewMode === "quality" ? "精選" : viewMode === "all" ? "全部" : "放量轉強"),
       isBottomSignal: isBottom(s),
       attention: s.attention,
       disposition: s.disposition,
@@ -804,17 +877,22 @@ export default function StockSurge({ onAddToWatchlist }: {
     .filter(isBottom)
     .sort((a, b) => bottomScore(b) - bottomScore(a))
     .slice(0, LIST_LIMIT);
+  const reboundRows = stocks
+    .filter(isVolumeRebound)
+    .sort((a, b) => reboundScore(b) - reboundScore(a))
+    .slice(0, LIST_LIMIT);
   const modeRows =
     viewMode === "quality" ? qualityRows :
     viewMode === "bottom" ? bottomRows :
+    viewMode === "rebound" ? reboundRows :
     stocks;
 
   const sorted = [...modeRows].sort((a, b) => {
     const va = sortKey === "rankScore"
-      ? (viewMode === "bottom" ? bottomScore(a) : qualityScore(a))
+      ? (viewMode === "bottom" ? bottomScore(a) : viewMode === "rebound" ? reboundScore(a) : qualityScore(a))
       : a[sortKey] as number | string | null;
     const vb = sortKey === "rankScore"
-      ? (viewMode === "bottom" ? bottomScore(b) : qualityScore(b))
+      ? (viewMode === "bottom" ? bottomScore(b) : viewMode === "rebound" ? reboundScore(b) : qualityScore(b))
       : b[sortKey] as number | string | null;
     if (va === null && vb === null) return 0;
     if (va === null) return 1;
@@ -832,6 +910,7 @@ export default function StockSurge({ onAddToWatchlist }: {
   const maxInd = indEntries[0]?.[1] ?? 1;
   const qualityCount = stocks.filter(isQuality).length;
   const bottomCount = stocks.filter(isBottom).length;
+  const reboundCount = stocks.filter(isVolumeRebound).length;
   const attentionCount = stocks.filter((s) => s.attention).length;
   const dispositionCount = stocks.filter((s) => s.disposition).length;
   const chartData = indEntries.slice(0, 12).map(([name, count]) => ({ name, count }));
@@ -918,6 +997,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           { label: "上市", value: stocks.filter(s => s.market === "上市").length || "—", color: "var(--c-text)" },
           { label: "上櫃", value: stocks.filter(s => s.market === "上櫃").length || "—", color: "var(--c-text)" },
           { label: "🔥 底部啟動", value: bottomCount || "—", color: "var(--c-amber)" },
+          { label: "放量/反彈", value: reboundCount || "—", color: "var(--c-blue)" },
           { label: "注意/處置", value: attentionCount + dispositionCount || "—", color: "var(--c-amber)" },
           { label: "涵蓋產業", value: indEntries.length || "—", color: "var(--c-dn)" },
         ].map((m) => (
@@ -985,6 +1065,7 @@ export default function StockSurge({ onAddToWatchlist }: {
               {[
                 { key: "quality" as const, label: "精選 Top 30", count: Math.min(qualityCount, LIST_LIMIT) },
                 { key: "bottom" as const, label: "底部啟動", count: Math.min(bottomCount, LIST_LIMIT) },
+                { key: "rebound" as const, label: "轉強/反彈", count: Math.min(reboundCount, LIST_LIMIT) },
                 { key: "all" as const, label: "全部", count: stocks.length },
               ].map((item) => {
                 const active = viewMode === item.key;
@@ -1021,6 +1102,7 @@ export default function StockSurge({ onAddToWatchlist }: {
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
               {viewMode === "quality" && "精選：股價 >10、成交金額 >5,000萬，依成交金額＋量能＋漲幅排序"}
               {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%、10日震幅 <15%，注意/處置只標示不排除"}
+              {viewMode === "rebound" && "轉強/反彈：5日量能 >100%，排除純底部後，標示放量轉強與高波動反彈"}
               {viewMode === "all" && "全部：當日漲幅超過 5% 個股"}
             </div>
             <span style={{
@@ -1069,6 +1151,7 @@ export default function StockSurge({ onAddToWatchlist }: {
                 <tbody>
                   {sorted.map((s, i) => {
                     const bottom = isBottom(s);
+                    const pattern = getSurgePattern(s);
                     return (
                       <tr
                         key={`${s.code}-${s.market}`}
@@ -1086,20 +1169,12 @@ export default function StockSurge({ onAddToWatchlist }: {
                         {/* 股名 */}
                         <td style={{ padding: "9px 12px", fontSize: 13, whiteSpace: "nowrap" }}>
                           {s.name}
+                          <PatternBadge pattern={pattern} />
                           {s.disposition && (
                             <RiskBadge type="disposition" title={s.flagPeriod ? `處置期間：${s.flagPeriod}` : s.flagReason} />
                           )}
                           {!s.disposition && s.attention && (
                             <RiskBadge type="attention" title={s.flagReason} />
-                          )}
-                          {bottom && (
-                            <span style={{
-                              marginLeft: 6, display: "inline-flex", alignItems: "center", gap: 3,
-                              fontSize: 10, padding: "1px 6px", borderRadius: 4,
-                              background: "rgba(245,158,11,0.15)", color: "var(--c-amber)",
-                            }}>
-                              <Flame size={9} /> 底部
-                            </span>
                           )}
                         </td>
                         {/* 市場 */}
