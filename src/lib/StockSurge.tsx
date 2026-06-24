@@ -41,8 +41,8 @@ const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
 const MAX_BOTTOM_RANGE10 = 15;
-const CACHE_KEY = "trendpulse_surge_cache_v3";
-const CACHE_VERSION = 3;
+const CACHE_KEY = "trendpulse_surge_cache_v4";
+const CACHE_VERSION = 4;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -712,6 +712,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       ]);
       let all: StockRow[] = [];
       let apiDate = "";
+      const sourceWarnings: string[] = [];
       const indMap = indRes.status === "fulfilled" ? indRes.value : {};
 
       if (twseRes.status === "fulfilled") {
@@ -730,6 +731,16 @@ export default function StockSurge({ onAddToWatchlist }: {
           cap: indMap[s.code]?.cap ?? null,
         }));
         all = all.concat(rows);
+      } else {
+        sourceWarnings.push("上櫃資料暫時抓取失敗，清單可能缺少上櫃股票。");
+      }
+
+      if (twseRes.status === "rejected") {
+        sourceWarnings.push("上市資料暫時抓取失敗。");
+      }
+
+      if (indRes.status === "rejected") {
+        sourceWarnings.push("產業資料暫時抓取失敗，產業分類可能不完整。");
       }
 
       if (all.length === 0) {
@@ -808,7 +819,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       });
       setCacheSavedAt(savedAt);
       setUsingCache(false);
-      setLoadNote("");
+      setLoadNote(sourceWarnings.join(" "));
     } catch (e) {
       if (cached) {
         setStocks(cached.stocks);
