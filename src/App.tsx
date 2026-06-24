@@ -121,10 +121,28 @@ export default function App() {
   const [data, setData] = useState<StockData | null>(null);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'analysis' | 'watchlist' | 'surge'>('analysis');
+  const [valuationInputs, setValuationInputs] = useState({
+    monthlyRevenue: '',
+    grossMargin: '',
+    operatingExpense: '',
+    nonOperatingIncome: '',
+    taxRate: '20',
+    capital: '',
+    annualMultiplier: '4',
+    eps2027: '',
+    fairPe: '35',
+    fomoPe: '45',
+    analystPe: '',
+    industryPe: '',
+  });
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
     const saved = localStorage.getItem('trendpulse_watchlist');
     return saved ? JSON.parse(saved) : [];
   });
+
+  const updateValuationInput = (key: keyof typeof valuationInputs, value: string) => {
+    setValuationInputs(prev => ({ ...prev, [key]: value }));
+  };
 
   const saveWatchlist = (items: WatchlistItem[]) => {
     setWatchlist(items);
@@ -326,6 +344,80 @@ export default function App() {
     if (value === null || value === undefined || value <= 0 || !Number.isFinite(value)) return "-";
     if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}億`;
     return `${Math.round(value / 10_000).toLocaleString()}萬`;
+  };
+
+  const parseInputNumber = (value: string) => {
+    const cleaned = value.replace(/,/g, '').trim();
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const formatValue = (value: number | null | undefined, digits = 2) => {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+    return value.toFixed(digits);
+  };
+
+  const formatTargetPrice = (value: number | null | undefined, currency = 'NT$') => {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+    return `${currency} ${value.toFixed(2)}`;
+  };
+
+  const getValuation = (stock: StockData) => {
+    const monthlyRevenue = parseInputNumber(valuationInputs.monthlyRevenue);
+    const grossMargin = parseInputNumber(valuationInputs.grossMargin);
+    const operatingExpense = parseInputNumber(valuationInputs.operatingExpense);
+    const nonOperatingIncome = parseInputNumber(valuationInputs.nonOperatingIncome) ?? 0;
+    const taxRate = parseInputNumber(valuationInputs.taxRate) ?? 20;
+    const capital = parseInputNumber(valuationInputs.capital);
+    const annualMultiplier = parseInputNumber(valuationInputs.annualMultiplier) ?? 4;
+    const eps2027 = parseInputNumber(valuationInputs.eps2027);
+    const fairPe = parseInputNumber(valuationInputs.fairPe);
+    const fomoPe = parseInputNumber(valuationInputs.fomoPe);
+    const analystPe = parseInputNumber(valuationInputs.analystPe);
+    const industryPe = parseInputNumber(valuationInputs.industryPe);
+
+    const quarterlyRevenue = monthlyRevenue !== null ? monthlyRevenue * 3 : null;
+    const grossProfit = quarterlyRevenue !== null && grossMargin !== null
+      ? quarterlyRevenue * grossMargin / 100
+      : null;
+    const operatingProfit = grossProfit !== null && operatingExpense !== null
+      ? grossProfit - operatingExpense
+      : null;
+    const pretaxProfit = operatingProfit !== null ? operatingProfit + nonOperatingIncome : null;
+    const netIncome = pretaxProfit !== null ? pretaxProfit * (1 - taxRate / 100) : null;
+    const quarterEps = netIncome !== null && capital !== null && capital > 0
+      ? netIncome / capital / 10
+      : null;
+    const annualEpsFromModel = quarterEps !== null ? quarterEps * annualMultiplier : null;
+    const scenarioEps = eps2027 ?? annualEpsFromModel;
+    const currentScenarioPe = scenarioEps !== null && scenarioEps > 0
+      ? stock.currentPrice / scenarioEps
+      : null;
+    const fairTarget = scenarioEps !== null && fairPe !== null ? scenarioEps * fairPe : null;
+    const fomoTarget = scenarioEps !== null && fomoPe !== null ? scenarioEps * fomoPe : null;
+    const analystTarget = scenarioEps !== null && analystPe !== null ? scenarioEps * analystPe : null;
+    const industryTarget = scenarioEps !== null && industryPe !== null ? scenarioEps * industryPe : null;
+    const fomoUpside = fomoTarget !== null && stock.currentPrice > 0
+      ? ((fomoTarget - stock.currentPrice) / stock.currentPrice) * 100
+      : null;
+
+    return {
+      quarterlyRevenue,
+      grossProfit,
+      operatingProfit,
+      pretaxProfit,
+      netIncome,
+      quarterEps,
+      annualEpsFromModel,
+      scenarioEps,
+      currentScenarioPe,
+      fairTarget,
+      fomoTarget,
+      analystTarget,
+      industryTarget,
+      fomoUpside,
+    };
   };
 
   const isSurgeItem = (item: WatchlistItem) => item.source === 'surge';
@@ -901,6 +993,160 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* 2027 情境估值 */}
+                  {(() => {
+                    const valuation = getValuation(data);
+                    const pureCode = data.symbol.split('.')[0];
+                    const links = [
+                      {
+                        label: "法人本益比",
+                        href: `https://www.cmoney.tw/finance/f00032.aspx?s=${pureCode}`,
+                      },
+                      {
+                        label: "產業本益比",
+                        href: `http://jsjustweb.jihsun.com.tw/z/zc/zca/zca_${pureCode}.djhtm`,
+                      },
+                      {
+                        label: "HiStock 財報",
+                        href: `https://histock.tw/stock/${pureCode}/%E8%B2%A1%E5%8B%99%E5%A0%B1%E8%A1%A8`,
+                      },
+                    ];
+                    const inputClass = "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+                    const labelClass = "mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500";
+                    const field = (
+                      key: keyof typeof valuationInputs,
+                      label: string,
+                      placeholder: string
+                    ) => (
+                      <label>
+                        <span className={labelClass}>{label}</span>
+                        <input
+                          value={valuationInputs[key]}
+                          onChange={(e) => updateValuationInput(key, e.target.value)}
+                          placeholder={placeholder}
+                          inputMode="decimal"
+                          className={inputClass}
+                        />
+                      </label>
+                    );
+
+                    return (
+                      <div className="sleek-card">
+                        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">2027 情境估值</h3>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">
+                              手動填入營收、毛利率與本益比，或直接填 2027E EPS；系統只負責計算，不假裝自動知道市場預估。
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {links.map(link => (
+                              <a
+                                key={link.label}
+                                href={link.href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              >
+                                {link.label}
+                                <ArrowUpRight className="h-3 w-3" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+                          <div className="space-y-4">
+                            <div>
+                              <div className="mb-2 text-xs font-bold text-slate-700">營收推 EPS（單位：百萬元；股本填「億」）</div>
+                              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                                {field("monthlyRevenue", "預估單月營收", "例如 943")}
+                                {field("grossMargin", "毛利率 %", "例如 27.39")}
+                                {field("operatingExpense", "營業費用", "例如 102")}
+                                {field("nonOperatingIncome", "業外收支", "例如 19")}
+                                {field("taxRate", "稅率 %", "20")}
+                                {field("capital", "股本 億", "例如 14")}
+                                {field("annualMultiplier", "年化倍數", "4")}
+                                {field("eps2027", "直接填 2027E EPS", "優先使用")}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="mb-2 text-xs font-bold text-slate-700">本益比情境</div>
+                              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                                {field("fairPe", "合理 PE", "35")}
+                                {field("fomoPe", "FOMO PE", "45")}
+                                {field("analystPe", "法人 PE", "例如 13.7")}
+                                {field("industryPe", "產業 PE", "例如 112.35")}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">估值輸出</span>
+                              {data.epsForward != null && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateValuationInput("eps2027", data.epsForward?.toFixed(2) ?? '')}
+                                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                                >
+                                  帶入 Yahoo EPS
+                                </button>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <div className="text-[11px] text-slate-500">預估單季營收</div>
+                                <div className="font-black text-slate-900">{formatValue(valuation.quarterlyRevenue, 0)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">預估毛利</div>
+                                <div className="font-black text-slate-900">{formatValue(valuation.grossProfit, 0)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">稅後淨利</div>
+                                <div className="font-black text-slate-900">{formatValue(valuation.netIncome, 0)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">模型年 EPS</div>
+                                <div className="font-black text-slate-900">{formatValue(valuation.annualEpsFromModel)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">採用 EPS</div>
+                                <div className="font-black text-blue-700">{formatValue(valuation.scenarioEps)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">2027E PE</div>
+                                <div className="font-black text-slate-900">{formatValue(valuation.currentScenarioPe, 1)}x</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">合理價</div>
+                                <div className="font-black text-emerald-700">{formatTargetPrice(valuation.fairTarget, data.currency)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">FOMO 價</div>
+                                <div className="font-black text-rose-700">{formatTargetPrice(valuation.fomoTarget, data.currency)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">法人價</div>
+                                <div className="font-black text-slate-900">{formatTargetPrice(valuation.analystTarget, data.currency)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">產業價</div>
+                                <div className="font-black text-slate-900">{formatTargetPrice(valuation.industryTarget, data.currency)}</div>
+                              </div>
+                            </div>
+                            <div className="mt-4 rounded-lg border border-rose-100 bg-white p-3 text-xs font-semibold text-slate-600">
+                              FOMO 空間：<span className="font-black text-rose-700">{formatValue(valuation.fomoUpside, 1)}%</span>
+                              <span className="ml-2 text-slate-400">以目前股價相對 FOMO 價計算</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Chart Card */}
                   <div className="sleek-card">
