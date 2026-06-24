@@ -1001,7 +1001,7 @@ export default function App() {
                     const links = [
                       {
                         label: "法人本益比",
-                        href: `https://www.cmoney.tw/finance/f00032.aspx?s=${pureCode}`,
+                        href: `https://www.cmoney.tw/finance/${pureCode}/f00032`,
                       },
                       {
                         label: "產業本益比",
