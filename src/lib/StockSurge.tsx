@@ -41,8 +41,8 @@ const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
 const MAX_BOTTOM_RANGE10 = 15;
-const CACHE_KEY = "trendpulse_surge_cache_v5";
-const CACHE_VERSION = 5;
+const CACHE_KEY = "trendpulse_surge_cache_v6";
+const CACHE_VERSION = 6;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -197,7 +197,7 @@ function rowKey(code: string, market: "上市" | "上櫃"): string {
 // ─── API：上市當日行情 ────────────────────────────────────────────────────────
 
 async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
-  const res = await fetch('/api/twse-daily')
+  const res = await fetch(`/api/twse-daily?ts=${Date.now()}`, { cache: "no-store" })
   if (!res.ok) throw new Error(`TWSE proxy 失敗 (${res.status})`)
   const data = await res.json()
   const rows: StockRow[] = [];
@@ -264,7 +264,7 @@ async function fetchTWSE(): Promise<{ rows: StockRow[]; date: string }> {
 // ─── API：上櫃當日行情 ────────────────────────────────────────────────────────
 
 async function fetchTPEx(): Promise<StockRow[]> {
-  const res = await fetch('/api/tpex-daily')
+  const res = await fetch(`/api/tpex-daily?ts=${Date.now()}`, { cache: "no-store" })
   if (!res.ok) throw new Error(`TPEx proxy 失敗 (${res.status})`)
   const raw = await res.json()
   const data: Record<string, string>[] = Array.isArray(raw) ? raw : raw?.data ?? [];
