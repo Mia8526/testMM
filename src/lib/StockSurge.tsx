@@ -41,8 +41,8 @@ const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
 const MAX_BOTTOM_RANGE10 = 15;
-const CACHE_KEY = "trendpulse_surge_cache_v4";
-const CACHE_VERSION = 4;
+const CACHE_KEY = "trendpulse_surge_cache_v5";
+const CACHE_VERSION = 5;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -68,6 +68,29 @@ function isAfterRefreshTime(date = new Date()): boolean {
 function isWeekend(date = new Date()): boolean {
   const day = date.getDay();
   return day === 0 || day === 6;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getExpectedDataDate(date = new Date()): string {
+  let expected = date;
+  const day = date.getDay();
+  if (day === 6) expected = addDays(date, -1);
+  else if (day === 0) expected = addDays(date, -2);
+  else if (!isAfterRefreshTime(date)) expected = addDays(date, -1);
+
+  while (expected.getDay() === 0 || expected.getDay() === 6) {
+    expected = addDays(expected, -1);
+  }
+  return getLocalDateKey(expected).replace(/-/g, "/");
+}
+
+function isCacheDataFresh(cache: SurgeCache): boolean {
+  return cache.dataDate >= getExpectedDataDate();
 }
 
 function readSurgeCache(): SurgeCache | null {
@@ -100,6 +123,7 @@ function writeSurgeCache(cache: SurgeCache): void {
 
 function shouldUseCache(cache: SurgeCache | null, forceRefresh: boolean): boolean {
   if (!cache || forceRefresh) return false;
+  if (!isCacheDataFresh(cache)) return false;
   const savedAt = new Date(cache.savedAt);
   const savedDate = getLocalDateKey(savedAt);
   if (savedDate === getLocalDateKey()) {
