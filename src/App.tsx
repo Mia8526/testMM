@@ -122,18 +122,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'analysis' | 'watchlist' | 'surge'>('analysis');
   const [valuationInputs, setValuationInputs] = useState({
-    monthlyRevenue: '',
-    grossMargin: '',
-    operatingExpense: '',
-    nonOperatingIncome: '',
-    taxRate: '20',
-    capital: '',
-    annualMultiplier: '4',
     eps2027: '',
-    fairPe: '35',
-    fomoPe: '45',
-    analystPe: '',
-    industryPe: '',
+    fairPe: '',
   });
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
     const saved = localStorage.getItem('trendpulse_watchlist');
@@ -364,59 +354,49 @@ export default function App() {
   };
 
   const getValuation = (stock: StockData) => {
-    const monthlyRevenue = parseInputNumber(valuationInputs.monthlyRevenue);
-    const grossMargin = parseInputNumber(valuationInputs.grossMargin);
-    const operatingExpense = parseInputNumber(valuationInputs.operatingExpense);
-    const nonOperatingIncome = parseInputNumber(valuationInputs.nonOperatingIncome) ?? 0;
-    const taxRate = parseInputNumber(valuationInputs.taxRate) ?? 20;
-    const capital = parseInputNumber(valuationInputs.capital);
-    const annualMultiplier = parseInputNumber(valuationInputs.annualMultiplier) ?? 4;
-    const eps2027 = parseInputNumber(valuationInputs.eps2027);
-    const fairPe = parseInputNumber(valuationInputs.fairPe);
-    const fomoPe = parseInputNumber(valuationInputs.fomoPe);
-    const analystPe = parseInputNumber(valuationInputs.analystPe);
-    const industryPe = parseInputNumber(valuationInputs.industryPe);
+    const manualEps = parseInputNumber(valuationInputs.eps2027);
+    const manualPe = parseInputNumber(valuationInputs.fairPe);
+    const autoEps = stock.epsForward ?? stock.trailingEps;
+    const scenarioEps = manualEps ?? autoEps;
+    const referencePe = manualPe ?? stock.trailingPE ?? 35;
 
-    const quarterlyRevenue = monthlyRevenue !== null ? monthlyRevenue * 3 : null;
-    const grossProfit = quarterlyRevenue !== null && grossMargin !== null
-      ? quarterlyRevenue * grossMargin / 100
-      : null;
-    const operatingProfit = grossProfit !== null && operatingExpense !== null
-      ? grossProfit - operatingExpense
-      : null;
-    const pretaxProfit = operatingProfit !== null ? operatingProfit + nonOperatingIncome : null;
-    const netIncome = pretaxProfit !== null ? pretaxProfit * (1 - taxRate / 100) : null;
-    const quarterEps = netIncome !== null && capital !== null && capital > 0
-      ? netIncome / capital / 10
-      : null;
-    const annualEpsFromModel = quarterEps !== null ? quarterEps * annualMultiplier : null;
-    const scenarioEps = eps2027 ?? annualEpsFromModel;
+    const epsSource = manualEps !== null
+      ? "手動 2027E EPS"
+      : stock.epsForward != null
+        ? "Yahoo Forward EPS"
+        : stock.trailingEps != null
+          ? "近 12 個月 EPS"
+          : "尚無 EPS 資料";
+    const peSource = manualPe !== null
+      ? "手動合理 PE"
+      : stock.trailingPE != null
+        ? "目前 trailing PE"
+        : "預設 35x";
+
+    const conservativeTarget = scenarioEps !== null ? scenarioEps * referencePe * 0.85 : null;
+    const fairTarget = scenarioEps !== null ? scenarioEps * referencePe : null;
+    const optimisticTarget = scenarioEps !== null ? scenarioEps * referencePe * 1.15 : null;
     const currentScenarioPe = scenarioEps !== null && scenarioEps > 0
       ? stock.currentPrice / scenarioEps
       : null;
-    const fairTarget = scenarioEps !== null && fairPe !== null ? scenarioEps * fairPe : null;
-    const fomoTarget = scenarioEps !== null && fomoPe !== null ? scenarioEps * fomoPe : null;
-    const analystTarget = scenarioEps !== null && analystPe !== null ? scenarioEps * analystPe : null;
-    const industryTarget = scenarioEps !== null && industryPe !== null ? scenarioEps * industryPe : null;
-    const fomoUpside = fomoTarget !== null && stock.currentPrice > 0
-      ? ((fomoTarget - stock.currentPrice) / stock.currentPrice) * 100
+    const fairUpside = fairTarget !== null && stock.currentPrice > 0
+      ? ((fairTarget - stock.currentPrice) / stock.currentPrice) * 100
+      : null;
+    const optimisticUpside = optimisticTarget !== null && stock.currentPrice > 0
+      ? ((optimisticTarget - stock.currentPrice) / stock.currentPrice) * 100
       : null;
 
     return {
-      quarterlyRevenue,
-      grossProfit,
-      operatingProfit,
-      pretaxProfit,
-      netIncome,
-      quarterEps,
-      annualEpsFromModel,
       scenarioEps,
-      currentScenarioPe,
+      epsSource,
+      referencePe,
+      peSource,
+      conservativeTarget,
       fairTarget,
-      fomoTarget,
-      analystTarget,
-      industryTarget,
-      fomoUpside,
+      optimisticTarget,
+      currentScenarioPe,
+      fairUpside,
+      optimisticUpside,
     };
   };
 
@@ -1017,7 +997,8 @@ export default function App() {
                     const field = (
                       key: keyof typeof valuationInputs,
                       label: string,
-                      placeholder: string
+                      placeholder: string,
+                      helper: string
                     ) => (
                       <label>
                         <span className={labelClass}>{label}</span>
@@ -1028,7 +1009,17 @@ export default function App() {
                           inputMode="decimal"
                           className={inputClass}
                         />
+                        <span className="mt-1 block text-[11px] font-medium text-slate-400">{helper}</span>
                       </label>
+                    );
+                    const quickSet = (label: string, onClick: () => void) => (
+                      <button
+                        type="button"
+                        onClick={onClick}
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                      >
+                        {label}
+                      </button>
                     );
 
                     return (
@@ -1037,7 +1028,7 @@ export default function App() {
                           <div>
                             <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">2027 情境估值</h3>
                             <p className="mt-1 text-xs leading-5 text-slate-500">
-                              手動填入營收、毛利率與本益比，或直接填 2027E EPS；系統只負責計算，不假裝自動知道市場預估。
+                              簡化版：系統先自動用 Yahoo EPS 與目前 PE 試算；你只要在有自己假設時，覆寫 EPS 或合理 PE 兩個欄位。
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -1056,91 +1047,80 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+                        <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
                           <div className="space-y-4">
-                            <div>
-                              <div className="mb-2 text-xs font-bold text-slate-700">營收推 EPS（單位：百萬元；股本填「億」）</div>
-                              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                                {field("monthlyRevenue", "預估單月營收", "例如 943")}
-                                {field("grossMargin", "毛利率 %", "例如 27.39")}
-                                {field("operatingExpense", "營業費用", "例如 102")}
-                                {field("nonOperatingIncome", "業外收支", "例如 19")}
-                                {field("taxRate", "稅率 %", "20")}
-                                {field("capital", "股本 億", "例如 14")}
-                                {field("annualMultiplier", "年化倍數", "4")}
-                                {field("eps2027", "直接填 2027E EPS", "優先使用")}
-                              </div>
+                            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-5 text-slate-600">
+                              <div className="mb-1 font-black text-blue-700">少填一點，先看方向</div>
+                              <div>空白 = 自動帶入。EPS 優先用 Yahoo Forward EPS，沒有才用近 12 個月 EPS；PE 優先用目前本益比，沒有才用 35x。</div>
                             </div>
 
-                            <div>
-                              <div className="mb-2 text-xs font-bold text-slate-700">本益比情境</div>
-                              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                                {field("fairPe", "合理 PE", "35")}
-                                {field("fomoPe", "FOMO PE", "45")}
-                                {field("analystPe", "法人 PE", "例如 13.7")}
-                                {field("industryPe", "產業 PE", "例如 112.35")}
-                              </div>
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                              {field(
+                                "eps2027",
+                                "2027E EPS（可選）",
+                                data.epsForward != null ? data.epsForward.toFixed(2) : "自動",
+                                `目前採用：${formatValue(valuation.scenarioEps)} · ${valuation.epsSource}`
+                              )}
+                              {field(
+                                "fairPe",
+                                "合理 PE（可選）",
+                                data.trailingPE != null ? data.trailingPE.toFixed(1) : "35",
+                                `目前採用：${formatValue(valuation.referencePe, 1)}x · ${valuation.peSource}`
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {data.epsForward != null && quickSet("帶入 Yahoo EPS", () => updateValuationInput("eps2027", data.epsForward?.toFixed(2) ?? ''))}
+                              {data.trailingPE != null && quickSet("帶入目前 PE", () => updateValuationInput("fairPe", data.trailingPE?.toFixed(1) ?? ''))}
+                              {quickSet("清空改自動", () => setValuationInputs({ eps2027: '', fairPe: '' }))}
                             </div>
                           </div>
 
                           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                             <div className="mb-3 flex items-center justify-between">
                               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">估值輸出</span>
-                              {data.epsForward != null && (
-                                <button
-                                  type="button"
-                                  onClick={() => updateValuationInput("eps2027", data.epsForward?.toFixed(2) ?? '')}
-                                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-700"
-                                >
-                                  帶入 Yahoo EPS
-                                </button>
-                              )}
+                              <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-500">3 段情境</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div>
-                                <div className="text-[11px] text-slate-500">預估單季營收</div>
-                                <div className="font-black text-slate-900">{formatValue(valuation.quarterlyRevenue, 0)}</div>
-                              </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">預估毛利</div>
-                                <div className="font-black text-slate-900">{formatValue(valuation.grossProfit, 0)}</div>
-                              </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">稅後淨利</div>
-                                <div className="font-black text-slate-900">{formatValue(valuation.netIncome, 0)}</div>
-                              </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">模型年 EPS</div>
-                                <div className="font-black text-slate-900">{formatValue(valuation.annualEpsFromModel)}</div>
-                              </div>
+
+                            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
                               <div>
                                 <div className="text-[11px] text-slate-500">採用 EPS</div>
                                 <div className="font-black text-blue-700">{formatValue(valuation.scenarioEps)}</div>
                               </div>
                               <div>
+                                <div className="text-[11px] text-slate-500">採用 PE</div>
+                                <div className="font-black text-slate-900">{formatValue(valuation.referencePe, 1)}x</div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] text-slate-500">目前股價</div>
+                                <div className="font-black text-slate-900">{formatTargetPrice(data.currentPrice, data.currency)}</div>
+                              </div>
+                              <div>
                                 <div className="text-[11px] text-slate-500">2027E PE</div>
                                 <div className="font-black text-slate-900">{formatValue(valuation.currentScenarioPe, 1)}x</div>
                               </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">合理價</div>
-                                <div className="font-black text-emerald-700">{formatTargetPrice(valuation.fairTarget, data.currency)}</div>
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                                <div className="text-[11px] font-bold text-slate-500">保守價</div>
+                                <div className="mt-1 text-lg font-black text-slate-700">{formatTargetPrice(valuation.conservativeTarget, data.currency)}</div>
+                                <div className="mt-1 text-[11px] text-slate-400">合理價 × 0.85</div>
                               </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">FOMO 價</div>
-                                <div className="font-black text-rose-700">{formatTargetPrice(valuation.fomoTarget, data.currency)}</div>
+                              <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                                <div className="text-[11px] font-bold text-slate-500">合理價</div>
+                                <div className="mt-1 text-lg font-black text-emerald-700">{formatTargetPrice(valuation.fairTarget, data.currency)}</div>
+                                <div className="mt-1 text-[11px] text-slate-400">空間 {formatValue(valuation.fairUpside, 1)}%</div>
                               </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">法人價</div>
-                                <div className="font-black text-slate-900">{formatTargetPrice(valuation.analystTarget, data.currency)}</div>
-                              </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">產業價</div>
-                                <div className="font-black text-slate-900">{formatTargetPrice(valuation.industryTarget, data.currency)}</div>
+                              <div className="rounded-xl border border-rose-100 bg-white p-3">
+                                <div className="text-[11px] font-bold text-slate-500">樂觀價</div>
+                                <div className="mt-1 text-lg font-black text-rose-700">{formatTargetPrice(valuation.optimisticTarget, data.currency)}</div>
+                                <div className="mt-1 text-[11px] text-slate-400">空間 {formatValue(valuation.optimisticUpside, 1)}%</div>
                               </div>
                             </div>
-                            <div className="mt-4 rounded-lg border border-rose-100 bg-white p-3 text-xs font-semibold text-slate-600">
-                              FOMO 空間：<span className="font-black text-rose-700">{formatValue(valuation.fomoUpside, 1)}%</span>
-                              <span className="ml-2 text-slate-400">以目前股價相對 FOMO 價計算</span>
+
+                            <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3 text-xs font-semibold text-slate-600">
+                              估值不是預測股價，只是把「EPS × PE」拆成可調假設；如果你只想快速看方向，可以完全不用填。
                             </div>
                           </div>
                         </div>
