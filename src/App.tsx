@@ -848,7 +848,7 @@ export default function App() {
                           </div>
                           
                           {/* EPS & 本益比區塊 */}
-                          {(data.trailingPE != null || data.epsForward != null || data.recentEpsGrowth != null) && (
+                          {(data.trailingPE != null || data.epsForward != null || data.trailingEps != null || data.recentEpsGrowth != null) && (
                             <div className="mt-2 flex flex-wrap gap-1.5 justify-end">
 
                               {/* 本益比 */}
@@ -872,20 +872,27 @@ export default function App() {
                                 </span>
                               )}
 
-                              {/* 預估 EPS（分析師預估，找不到顯示—） */}
-                              <span className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
-                                data.epsForward != null && data.epsGrowth && parseFloat(data.epsGrowth) >= 20
-                                  ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
-                                  : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
-                              )}>
-                                預估EPS {data.epsForward != null ? data.epsForward.toFixed(2) : '—'}
-                                {data.epsForward != null && data.epsGrowth &&
-                                  parseFloat(data.epsGrowth) >= 20 &&
-                                  parseFloat(data.epsGrowth) <= 500 && (
-                                  <span className="ml-1 opacity-90">(+{data.epsGrowth}%)</span>
-                                )}
-                              </span>
+                              {/* EPS：優先顯示可信的 Forward EPS；否則顯示近 12 個月 EPS */}
+                              {(() => {
+                                const epsValue = data.epsForward ?? data.trailingEps;
+                                if (epsValue == null) return null;
+                                const isForward = data.epsForward != null;
+                                return (
+                                  <span className={cn(
+                                    "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
+                                    isForward && data.epsGrowth && parseFloat(data.epsGrowth) >= 20
+                                      ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
+                                      : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
+                                  )}>
+                                    {isForward ? "預估EPS" : "近12月EPS"} {epsValue.toFixed(2)}
+                                    {isForward && data.epsGrowth &&
+                                      parseFloat(data.epsGrowth) >= 20 &&
+                                      parseFloat(data.epsGrowth) <= 500 && (
+                                      <span className="ml-1 opacity-90">(+{data.epsGrowth}%)</span>
+                                    )}
+                                  </span>
+                                );
+                              })()}
 
                             </div>
                           )}
@@ -1028,7 +1035,7 @@ export default function App() {
                           <div>
                             <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">2027 情境估值</h3>
                             <p className="mt-1 text-xs leading-5 text-slate-500">
-                              簡化版：系統先自動用 Yahoo EPS 與目前 PE 試算；你只要在有自己假設時，覆寫 EPS 或合理 PE 兩個欄位。
+                              簡化版：系統先自動用可信 EPS 與交易所 / Yahoo 本益比試算；你只要在有自己假設時，覆寫 EPS 或合理 PE 兩個欄位。
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -1051,14 +1058,14 @@ export default function App() {
                           <div className="space-y-4">
                             <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-5 text-slate-600">
                               <div className="mb-1 font-black text-blue-700">少填一點，先看方向</div>
-                              <div>空白 = 自動帶入。EPS 優先用 Yahoo Forward EPS，沒有才用近 12 個月 EPS；PE 優先用目前本益比，沒有才用 35x。</div>
+                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用交易所本益比，沒有才用 Yahoo / 35x。</div>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                               {field(
                                 "eps2027",
                                 "2027E EPS（可選）",
-                                data.epsForward != null ? data.epsForward.toFixed(2) : "自動",
+                                (data.epsForward ?? data.trailingEps) != null ? (data.epsForward ?? data.trailingEps)!.toFixed(2) : "自動",
                                 `目前採用：${formatValue(valuation.scenarioEps)} · ${valuation.epsSource}`
                               )}
                               {field(
@@ -1070,7 +1077,7 @@ export default function App() {
                             </div>
 
                             <div className="flex flex-wrap gap-2">
-                              {data.epsForward != null && quickSet("帶入 Yahoo EPS", () => updateValuationInput("eps2027", data.epsForward?.toFixed(2) ?? ''))}
+                              {(data.epsForward ?? data.trailingEps) != null && quickSet("帶入 EPS", () => updateValuationInput("eps2027", (data.epsForward ?? data.trailingEps)?.toFixed(2) ?? ''))}
                               {data.trailingPE != null && quickSet("帶入目前 PE", () => updateValuationInput("fairPe", data.trailingPE?.toFixed(1) ?? ''))}
                               {quickSet("清空改自動", () => setValuationInputs({ eps2027: '', fairPe: '' }))}
                             </div>

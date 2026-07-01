@@ -22,3 +22,12 @@
 - [x] 根因：前次為了速度把 `getTaiwanShortNameFast` timeout 設成 400ms；上櫃中文名稱對照表冷啟動時可能尚未載入完成，導致 fallback 到 Yahoo 英文名稱。
 - [x] 修正：保留 suffix 判斷快速 timeout，但使用者看到的股名把中文名稱等待時間提高到 2000ms。
 - [x] 驗證：API 查詢 `8299`、`6488`、`3081` 都回中文；瀏覽器趨勢分析查詢 `8299` 顯示 `群聯`。
+
+## 2026-07-02 — 修正 3167 趨勢分析 EPS / PE 低估
+
+- [x] Repro：本機 `/api/stock?ticker=3167` 回 `epsForward=4.54`，本機 dev API 原本也沒回 `trailingPE/trailingEps`；Yahoo quote 對 3167 回 `trailingPE=105.25`、`trailingEps=8`。
+- [x] 對照：TWSE `BWIBBU_ALL` 對 3167 官方本益比為 `82.07`，以現價 `842` 反推近 12 月 EPS 約 `10.26`。
+- [x] 根因：Yahoo 台股 forward EPS 可能過舊/偏低；上市股 PE 用 Yahoo 會與 TWSE 官方資料不一致；local `server.ts` 與 Vercel `api/stock.ts` EPS/PE 邏輯不同步。
+- [x] 修正：上市股優先用 TWSE 官方 PE，反推近 12 月 EPS；若 Yahoo forward EPS 明顯低於 trailing EPS 且缺少同步年度預估，視為不可靠並改用 trailing EPS；同步修正 local 與 Vercel API。
+- [x] UI：EPS badge 改為可信 forward EPS 或 `近12月EPS`，估值文案改為可信 EPS + 交易所/Yahoo PE。
+- [x] 驗證：3167 顯示 `本益比 82.1x`、`近12月EPS 10.26`；2330 仍保留可信 `epsForward=125.52`；`pnpm run lint`、`pnpm run build`、瀏覽器查詢 3167 passed.

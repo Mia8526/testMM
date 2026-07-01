@@ -62,6 +62,52 @@ async function fetchJsonArray(url: string): Promise<Record<string, string>[]> {
   }
 }
 
+function parseOptionalNumber(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  const cleaned = String(value).replace(/[,\s]/g, '').trim();
+  if (!cleaned || cleaned === '-' || cleaned === '—') return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+type ExchangeValuation = {
+  trailingPE: number | null;
+  source: 'TWSE' | 'Yahoo';
+};
+
+let listedValuationMapCache: Record<string, ExchangeValuation> | null = null;
+let listedValuationMapPromise: Promise<Record<string, ExchangeValuation>> | null = null;
+
+async function getListedValuationMap(): Promise<Record<string, ExchangeValuation>> {
+  if (listedValuationMapCache) return listedValuationMapCache;
+  if (!listedValuationMapPromise) {
+    listedValuationMapPromise = (async () => {
+      const rows = await fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL');
+      const map: Record<string, ExchangeValuation> = {};
+
+      for (const row of rows) {
+        const code = String(row.Code ?? row['股票代號'] ?? '').trim();
+        const trailingPE = parseOptionalNumber(row.PEratio ?? row['本益比']);
+        if (code && trailingPE !== null && trailingPE > 0) {
+          map[code] = { trailingPE, source: 'TWSE' };
+        }
+      }
+
+      listedValuationMapCache = map;
+      return map;
+    })().finally(() => {
+      listedValuationMapPromise = null;
+    });
+  }
+  return listedValuationMapPromise;
+}
+
+async function getExchangeValuation(code: string, marketType: string): Promise<ExchangeValuation | null> {
+  if (marketType !== '上市') return null;
+  const map = await getListedValuationMap();
+  return map[code] ?? null;
+}
+
 async function getListedNameMap(): Promise<Record<string, string>> {
   if (listedNameMapCache) return listedNameMapCache;
   if (!listedNameMapPromise) {
@@ -387,17 +433,45 @@ async function startServer(): Promise<void> {
       const latestQuotePrice = fetchResult?.quote?.regularMarketPrice;
       const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
 
-      // Fundamental Extension: Forward EPS & Growth (Robust Error Handling)
-      let epsForward = null;
-      let epsGrowth = null;
+      // Fundamental: EPS & PE
+      let epsForward: number | null = null;
+      let epsGrowth: number | null = null;
+      let trailingEps: number | null = null;
+      let trailingPE: number | null = null;
+      let recentEpsGrowth: string | null = null;
       
       try {
-        // Use optional chaining for everything
-        epsForward = fetchResult?.quote?.epsForward ?? fetchResult?.quote?.trailingEps ?? null;
-        const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
+        const pureCode = symbol.split('.')[0];
+        const exchangeValuation = await getExchangeValuation(pureCode, marketType);
+        const yahooForwardEps = parseOptionalNumber(fetchResult?.quote?.epsForward);
+        const epsCurrentYear = parseOptionalNumber(fetchResult?.quote?.epsCurrentYear);
+        const yahooTrailingPE = parseOptionalNumber(fetchResult?.quote?.trailingPE);
+        const yahooTrailingEps = parseOptionalNumber(
+          fetchResult?.quote?.trailingEps ?? fetchResult?.quote?.epsTrailingTwelveMonths
+        );
+
+        // 台股上市本益比優先採 TWSE BWIBBU_ALL，避免 Yahoo 台股 EPS/PE 延遲或單位異常。
+        trailingPE = exchangeValuation?.trailingPE ?? yahooTrailingPE;
+        trailingEps = yahooTrailingEps;
+        if (trailingPE !== null && trailingPE > 0 && currentPrice > 0) {
+          trailingEps = currentPrice / trailingPE;
+        }
+
+        // 只有在 Yahoo 有同步的年度 EPS 或沒有更可靠的 trailing EPS 時才採 Forward EPS。
+        const forwardLooksReliable = yahooForwardEps !== null && (
+          epsCurrentYear !== null ||
+          trailingEps === null ||
+          yahooForwardEps >= trailingEps * 0.7
+        );
+        epsForward = forwardLooksReliable ? yahooForwardEps : null;
         
         if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
           epsGrowth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
+        }
+
+        const earningsGrowth = parseOptionalNumber(fetchResult?.quote?.earningsGrowth);
+        if (earningsGrowth !== null) {
+          recentEpsGrowth = (earningsGrowth * 100).toFixed(2);
         }
       } catch (e) {
         console.error("Error fetching/calculating EPS:", e);
@@ -663,6 +737,9 @@ async function startServer(): Promise<void> {
         reasons,
         epsForward,
         epsGrowth: epsGrowth !== null ? epsGrowth.toFixed(2) : null,
+        trailingEps,
+        trailingPE: trailingPE !== null ? Math.round(trailingPE * 10) / 10 : null,
+        recentEpsGrowth,
         chartData: data.slice(-200).map((d, i, arr) => {
           // Calculate MA indices more efficiently
           const dataIndex = data.length - arr.length + i;

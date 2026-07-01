@@ -56,6 +56,52 @@ async function fetchJsonArray(url: string): Promise<Record<string, string>[]> {
   }
 }
 
+function parseOptionalNumber(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  const cleaned = String(value).replace(/[,\s]/g, '').trim();
+  if (!cleaned || cleaned === '-' || cleaned === '—') return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+type ExchangeValuation = {
+  trailingPE: number | null;
+  source: 'TWSE' | 'Yahoo';
+};
+
+let listedValuationMapCache: Record<string, ExchangeValuation> | null = null;
+let listedValuationMapPromise: Promise<Record<string, ExchangeValuation>> | null = null;
+
+async function getListedValuationMap(): Promise<Record<string, ExchangeValuation>> {
+  if (listedValuationMapCache) return listedValuationMapCache;
+  if (!listedValuationMapPromise) {
+    listedValuationMapPromise = (async () => {
+      const rows = await fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL');
+      const map: Record<string, ExchangeValuation> = {};
+
+      for (const row of rows) {
+        const code = String(row.Code ?? row['股票代號'] ?? '').trim();
+        const trailingPE = parseOptionalNumber(row.PEratio ?? row['本益比']);
+        if (code && trailingPE !== null && trailingPE > 0) {
+          map[code] = { trailingPE, source: 'TWSE' };
+        }
+      }
+
+      listedValuationMapCache = map;
+      return map;
+    })().finally(() => {
+      listedValuationMapPromise = null;
+    });
+  }
+  return listedValuationMapPromise;
+}
+
+async function getExchangeValuation(code: string, marketType: string): Promise<ExchangeValuation | null> {
+  if (marketType !== '上市') return null;
+  const map = await getListedValuationMap();
+  return map[code] ?? null;
+}
+
 async function getListedNameMap(): Promise<Record<string, string>> {
   if (listedNameMapCache) return listedNameMapCache;
   if (!listedNameMapPromise) {
@@ -378,43 +424,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const latestQuotePrice = fetchResult?.quote?.regularMarketPrice;
     const currentPrice = latestQuotePrice !== undefined && latestQuotePrice !== null ? latestQuotePrice : closes[closes.length - 1];
 
-    // ── Fundamental: EPS & PE（全面修正版）──────────────────────
+    // ── Fundamental: EPS & PE ───────────────────────
     let epsForward: number | null = null;
     let epsGrowth: string | null = null;
     let trailingEps: number | null = null;
     let trailingPE: number | null = null;
-    let recentEpsGrowth: string | null = null; // 近四季實際成長率
+    let recentEpsGrowth: string | null = null;
 
     try {
-      // [FIXED] epsForward 不再 fallback 到 trailingEps，找不到就是 null
-      epsForward = fetchResult?.quote?.epsForward ?? null;
+      const pureCode = symbol.split('.')[0];
+      const exchangeValuation = await getExchangeValuation(pureCode, marketType);
+      const yahooForwardEps = parseOptionalNumber(fetchResult?.quote?.epsForward);
+      const epsCurrentYear = parseOptionalNumber(fetchResult?.quote?.epsCurrentYear);
+      const yahooTrailingPE = parseOptionalNumber(fetchResult?.quote?.trailingPE);
+      const yahooTrailingEps = parseOptionalNumber(
+        fetchResult?.quote?.trailingEps ?? fetchResult?.quote?.epsTrailingTwelveMonths
+      );
 
-      // 預估成長率：明年預估 vs 今年預估
-      const epsCurrentYear = fetchResult?.quote?.epsCurrentYear ?? null;
+      // 台股上市本益比優先採 TWSE BWIBBU_ALL，避免 Yahoo 台股 EPS/PE 延遲或單位異常。
+      trailingPE = exchangeValuation?.trailingPE ?? yahooTrailingPE;
+      trailingEps = yahooTrailingEps;
+      if (trailingPE !== null && trailingPE > 0 && currentPrice > 0) {
+        trailingEps = currentPrice / trailingPE;
+      }
+
+      // 只有在 Yahoo 有同步的年度 EPS 或沒有更可靠的 trailing EPS 時才採 Forward EPS。
+      // 3167 這類個股可能回到過舊/過低的 forwardEps，會低估情境估值。
+      const forwardLooksReliable = yahooForwardEps !== null && (
+        epsCurrentYear !== null ||
+        trailingEps === null ||
+        yahooForwardEps >= trailingEps * 0.7
+      );
+      epsForward = forwardLooksReliable ? yahooForwardEps : null;
+
       if (epsForward !== null && epsCurrentYear !== null && epsCurrentYear !== 0) {
         const growth = ((epsForward - epsCurrentYear) / Math.abs(epsCurrentYear)) * 100;
         epsGrowth = growth.toFixed(2);
       }
 
-      // 本益比：trailing（過去 12 個月）
-      trailingPE = fetchResult?.quote?.trailingPE ?? null;
-      // [FIXED] trailingEps：從 trailingPE 反推，Yahoo 台股通常不直接給 trailingEps
-      trailingEps = fetchResult?.quote?.trailingEps ?? null;
-      if (trailingEps === null && trailingPE !== null && trailingPE !== 0 && currentPrice > 0) {
-        trailingEps = currentPrice / trailingPE;
-      }
-
-      // [FIXED] 近四季實際 EPS 成長率
-      // 正確做法：近 12 個月實際 EPS（trailingEps）vs 上一年度 EPS（epsForward 的前一年）
-      // Yahoo 有 earningsGrowth（YoY 盈餘成長率），直接用這個最準
-      const earningsGrowth = fetchResult?.quote?.earningsGrowth ?? null;
+      const earningsGrowth = parseOptionalNumber(fetchResult?.quote?.earningsGrowth);
       if (earningsGrowth !== null) {
-        // earningsGrowth 是小數，例如 0.238 代表 +23.8%
         recentEpsGrowth = (earningsGrowth * 100).toFixed(2);
-      } else if (trailingEps !== null && epsForward !== null && epsForward !== 0) {
-        // fallback：用 trailingEps vs epsForward 的差距估算（不準但聊勝於無）
-        // 不顯示，避免誤導
-        recentEpsGrowth = null;
       }
 
     } catch (e) {
