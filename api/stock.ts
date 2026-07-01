@@ -121,11 +121,41 @@ async function getTaiwanShortName(code: string, marketType: string): Promise<str
   return map[code] ?? null;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(fallback))
+      .finally(() => clearTimeout(timer));
+  });
+}
+
+async function getTaiwanShortNameFast(code: string, marketType: string): Promise<string | null> {
+  return withTimeout(getTaiwanShortName(code, marketType), 400, null);
+}
+
+async function inferTaiwanSuffix(code: string): Promise<'TW' | 'TWO' | null> {
+  const [listedMap, otcMap] = await Promise.all([
+    getListedNameMap(),
+    getOtcNameMap(),
+  ]);
+
+  if (listedMap[code]) return 'TW';
+  if (otcMap[code]) return 'TWO';
+  return null;
+}
+
+async function inferTaiwanSuffixFast(code: string): Promise<'TW' | 'TWO' | null> {
+  return withTimeout(inferTaiwanSuffix(code), 400, null);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Set CORS headers for Vercel
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
@@ -150,7 +180,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let shortName = '';
     let currency = 'NT$';
 
-    // Helper to fetch data with fallback
+    // Helper to fetch data with fallback. Historical prices are required;
+    // quote is nice-to-have, so fetch both concurrently instead of waiting
+    // for historical first and quote second.
     const fetchData = async (sym: string) => {
       try {
         const endDate = new Date();
@@ -160,12 +192,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           period2: format(endDate, 'yyyy-MM-dd'),
           interval: '1d' as const,
         };
-        const historical: any = await yahooFinance.historical(sym, queryOptions);
-        let quote = null;
-        try {
-          quote = await yahooFinance.quote(sym);
-        } catch (qe) {
-          console.error(`fetchData: Quote fetch failed for ${sym} but historical is OK`, qe);
+
+        const [historicalResult, quoteResult] = await Promise.allSettled([
+          yahooFinance.historical(sym, queryOptions),
+          yahooFinance.quote(sym),
+        ]);
+
+        if (historicalResult.status === 'rejected') {
+          throw historicalResult.reason;
+        }
+
+        const historical: any = historicalResult.value;
+        const quote = quoteResult.status === 'fulfilled' ? quoteResult.value : null;
+        if (quoteResult.status === 'rejected') {
+          console.error(`fetchData: Quote fetch failed for ${sym} but historical is OK`, quoteResult.reason);
         }
         return { historical, quote };
       } catch (e: any) {
@@ -196,11 +236,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
         
         if (chartData && chartData.quotes && chartData.quotes.length > 0) {
-          let quote = null;
-          try {
-            quote = await yahooFinance.quote(sym);
-          } catch (qe) {
-            console.error(`Quote fetch failed for ${sym} but chart data is OK`, qe);
+          const quoteResult = await Promise.allSettled([yahooFinance.quote(sym)]);
+          const quote = quoteResult[0].status === 'fulfilled' ? quoteResult[0].value : null;
+          if (quoteResult[0].status === 'rejected') {
+            console.error(`Quote fetch failed for ${sym} but chart data is OK`, quoteResult[0].reason);
           }
           const historical = chartData.quotes
             .filter((q: any) => q.close !== null && q.close !== undefined)
@@ -232,11 +271,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     if (isTaiwanNumeric) {
       const pureCode = symbol.split('.')[0];
-      const preferredSuffix = symbol.includes('.') ? symbol.split('.')[1].toUpperCase() : 'TW';
+      const hasExplicitSuffix = symbol.includes('.');
+      const explicitSuffix = hasExplicitSuffix ? symbol.split('.')[1].toUpperCase() : '';
+      const inferredSuffixPromise = hasExplicitSuffix
+        ? Promise.resolve(explicitSuffix as 'TW' | 'TWO')
+        : inferTaiwanSuffixFast(pureCode);
+      const defaultTwFetchPromise = hasExplicitSuffix ? null : tryFetch(`${pureCode}.TW`);
+      const inferredSuffix = await inferredSuffixPromise;
+      const preferredSuffix = inferredSuffix || 'TW';
       const alternativeSuffix = preferredSuffix === 'TW' ? 'TWO' : 'TW';
       
       console.log(`[${requestId}] Detected Taiwan numeric symbol: ${pureCode}. Trying ${preferredSuffix} first.`);
-      fetchResult = await tryFetch(`${pureCode}.${preferredSuffix}`);
+      fetchResult = !hasExplicitSuffix && preferredSuffix === 'TW' && defaultTwFetchPromise
+        ? await defaultTwFetchPromise
+        : await tryFetch(`${pureCode}.${preferredSuffix}`);
       
       if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
         console.log(`[${requestId}] ${preferredSuffix} failed or empty, trying ${alternativeSuffix}.`);
@@ -308,7 +356,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Name Logic: Taiwan stocks -> Chinese, US stocks -> English
     if (marketType === '上市' || marketType === '上櫃') {
       const pureCode = symbol.split('.')[0];
-      shortName = await getTaiwanShortName(pureCode, marketType)
+      shortName = await getTaiwanShortNameFast(pureCode, marketType)
         || fetchResult?.quote?.displayName
         || fetchResult?.quote?.shortName
         || fetchResult?.quote?.longName
