@@ -15,3 +15,10 @@
 - [x] 手動欄位縮成 2 個：`2027E EPS（可選）`、`合理 PE（可選）`。
 - [x] 輸出改為保守/合理/樂觀三段目標價與空間。
 - [x] 驗證：`pnpm run lint`、`pnpm run build`、瀏覽器查詢 2330 並手動覆寫 EPS/PE。
+
+## 2026-07-01 — 修正上櫃股名顯示英文
+
+- [x] Repro：冷啟動查詢 `8299` 時，API 曾回 `PHISON ELECTRONICS CORP`，不含中文。
+- [x] 根因：前次為了速度把 `getTaiwanShortNameFast` timeout 設成 400ms；上櫃中文名稱對照表冷啟動時可能尚未載入完成，導致 fallback 到 Yahoo 英文名稱。
+- [x] 修正：保留 suffix 判斷快速 timeout，但使用者看到的股名把中文名稱等待時間提高到 2000ms。
+- [x] 驗證：API 查詢 `8299`、`6488`、`3081` 都回中文；瀏覽器趨勢分析查詢 `8299` 顯示 `群聯`。

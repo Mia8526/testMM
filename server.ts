@@ -138,7 +138,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 async function getTaiwanShortNameFast(code: string, marketType: string): Promise<string | null> {
-  return withTimeout(getTaiwanShortName(code, marketType), 400, null);
+  // The displayed name is user-facing. Give the exchange name map a little
+  // more time than suffix detection so OTC stocks do not fall back to Yahoo's
+  // English company names on cold start.
+  return withTimeout(getTaiwanShortName(code, marketType), 2000, null);
 }
 
 async function inferTaiwanSuffix(code: string): Promise<'TW' | 'TWO' | null> {
