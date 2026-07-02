@@ -35,14 +35,17 @@ interface StockRow {
 }
 
 type ViewMode = "quality" | "bottom" | "rebound" | "all";
-type SurgePattern = "底部啟動" | "放量轉強" | "高波動反彈" | null;
+type SurgePattern = "底部啟動" | "放量轉強" | "轉強反彈" | null;
 
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
-const MAX_BOTTOM_RANGE10 = 15;
-const CACHE_KEY = "trendpulse_surge_cache_v6";
-const CACHE_VERSION = 6;
+const MAX_BOTTOM_C14 = 8;
+const MIN_BOTTOM_VOL5 = 80;
+const MAX_BOTTOM_RANGE10 = 18;
+const MIN_REBOUND_VOL5 = 100;
+const CACHE_KEY = "trendpulse_surge_cache_v7";
+const CACHE_VERSION = 7;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -488,8 +491,8 @@ function isBottom(s: StockRow): boolean {
   return (
     s.price > MIN_PRICE &&
     (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.c14 !== null ? s.c14 < 5 : false) &&
-    (s.vol5 !== null ? s.vol5 > 100 : false) &&
+    (s.c14 !== null ? s.c14 < MAX_BOTTOM_C14 : false) &&
+    (s.vol5 !== null ? s.vol5 > MIN_BOTTOM_VOL5 : false) &&
     (s.range10 !== null ? s.range10 <= MAX_BOTTOM_RANGE10 : false)
   );
 }
@@ -499,16 +502,16 @@ function getSurgePattern(s: StockRow): SurgePattern {
   if (
     s.price > MIN_PRICE &&
     (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.vol5 !== null ? s.vol5 > 100 : false) &&
-    (s.c14 !== null ? s.c14 < 5 : false) &&
+    (s.vol5 !== null ? s.vol5 > MIN_BOTTOM_VOL5 : false) &&
+    (s.c14 !== null ? s.c14 < MAX_BOTTOM_C14 : false) &&
     (s.range10 !== null ? s.range10 > MAX_BOTTOM_RANGE10 : false)
   ) {
-    return "高波動反彈";
+    return "轉強反彈";
   }
   if (
     s.price > MIN_PRICE &&
     (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.vol5 !== null ? s.vol5 > 100 : false)
+    (s.vol5 !== null ? s.vol5 > MIN_REBOUND_VOL5 : false)
   ) {
     return "放量轉強";
   }
@@ -517,7 +520,7 @@ function getSurgePattern(s: StockRow): SurgePattern {
 
 function isVolumeRebound(s: StockRow): boolean {
   const pattern = getSurgePattern(s);
-  return pattern === "放量轉強" || pattern === "高波動反彈";
+  return pattern === "放量轉強" || pattern === "轉強反彈";
 }
 
 function isQuality(s: StockRow): boolean {
@@ -590,7 +593,7 @@ function PatternBadge({ pattern }: { pattern: SurgePattern }) {
       color: "var(--c-blue)",
       border: "rgba(96,165,250,0.28)",
     },
-    "高波動反彈": {
+    "轉強反彈": {
       bg: "rgba(240,92,92,0.12)",
       color: "var(--c-up)",
       border: "rgba(240,92,92,0.26)",
@@ -1136,8 +1139,8 @@ export default function StockSurge({ onAddToWatchlist }: {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
               {viewMode === "quality" && "精選：股價 >10、成交金額 >5,000萬，依成交金額＋量能＋漲幅排序"}
-              {viewMode === "bottom" && "底部啟動：14日漲幅 <5%、5日量能 >100%、10日震幅 <15%，注意/處置只標示不排除"}
-              {viewMode === "rebound" && "轉強/反彈：5日量能 >100%，排除純底部後，標示放量轉強與高波動反彈"}
+              {viewMode === "bottom" && "底部啟動：當日漲幅 >5%、14日漲幅 <8%、5日量能 >80%、10日震幅 ≤18%，抓剛離開低檔整理的第一段"}
+              {viewMode === "rebound" && "轉強/反彈：量能明顯放大但不一定是低檔；適合先觀察續航，等回測不破或隔日續強再處理"}
               {viewMode === "all" && "全部：當日漲幅超過 5% 個股"}
             </div>
             <span style={{
@@ -1146,7 +1149,7 @@ export default function StockSurge({ onAddToWatchlist }: {
               background: "rgba(245,158,11,0.12)", color: "var(--c-amber)",
             }}>
               <Flame size={11} />
-              底部啟動：14日漲幅 &lt;5%、5日量能 &gt;100%、10日震幅 &lt;15%
+              底部啟動：當日漲幅 &gt;5%、14日漲幅 &lt;8%、5日量能 &gt;80%、10日震幅 ≤18%
             </span>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
@@ -1351,7 +1354,8 @@ export default function StockSurge({ onAddToWatchlist }: {
             * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:45 更新。<br />
             * 頁面會先使用瀏覽器暫存；平日 15:45 後自動更新，按「重新整理」可立即強制重抓。<br />
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
-            * 底部啟動條件：14日漲幅 &lt;5%、5日量能變化 &gt;100%、10日震幅 &lt;15%（排除高檔劇烈反彈）。<br />
+            * 底部啟動條件：當日漲幅 &gt;5%、14日漲幅 &lt;8%、5日量能變化 &gt;80%、10日震幅 ≤18%（抓低檔整理後第一段）。<br />
+            * 轉強/反彈：量能放大但不一定在低檔，適合先放觀察名單，等回測不破或隔日續強再評估。<br />
             * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>

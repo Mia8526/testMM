@@ -5,4 +5,5 @@
 - 2026-07-01: Fixed OTC stock names in 趨勢分析 so 上櫃 stocks wait longer for exchange Chinese name mapping instead of falling back to Yahoo English names on cold start.
 - 2026-07-02: Fixed 3167 趨勢分析 EPS/PE underestimation by preferring TWSE official PE and treating stale/too-low Yahoo forward EPS as unreliable.
 - 2026-07-02: Fixed 3189 情境估值 overstatement by not using extreme trailing PE (>100x) as the automatic fair PE; default valuation PE falls back to 35x while keeping manual override.
-- Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 3189/3167/2330, and browser smoke tests for 3189 auto/default PE + manual PE override passed.
+- 2026-07-02: Reviewed 每日強勢股分類; relaxed 底部啟動 from c14<5/vol5>100/range10<15 to c14<8/vol5>80/range10≤18, renamed high-volatility rebound to 轉強反彈, and added usage guidance.
+- Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 3189/3167/2330, standalone surge-classification data check, and browser smoke tests for 3189 auto/default PE + manual PE override passed.
