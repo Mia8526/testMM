@@ -31,3 +31,11 @@
 - [x] 修正：上市股優先用 TWSE 官方 PE，反推近 12 月 EPS；若 Yahoo forward EPS 明顯低於 trailing EPS 且缺少同步年度預估，視為不可靠並改用 trailing EPS；同步修正 local 與 Vercel API。
 - [x] UI：EPS badge 改為可信 forward EPS 或 `近12月EPS`，估值文案改為可信 EPS + 交易所/Yahoo PE。
 - [x] 驗證：3167 顯示 `本益比 82.1x`、`近12月EPS 10.26`；2330 仍保留可信 `epsForward=125.52`；`pnpm run lint`、`pnpm run build`、瀏覽器查詢 3167 passed.
+
+## 2026-07-02 — 修正 3189 情境估值過高
+
+- [x] Repro：本機 `/api/stock?ticker=3189.TW` 回 `epsForward=23.6392`、`trailingPE=250.1`；原 UI 用 `23.64 × 250.1`，合理價會被放大到約 `NT$5,912`。
+- [x] 對照：TWSE `BWIBBU_ALL` 對 3189 官方本益比為 `250.14`、股價 `888`；Goodinfo / TWSE Q1 顯示 2026Q1 EPS 約 `1.17`，目前高 PE 主要是近 12 月 EPS 低基期造成。
+- [x] 根因：Forward EPS 可作為成長假設，但不能直接搭配受低基期扭曲的 trailing PE 當「合理 PE」。
+- [x] 修正：若自動 PE 超過 `100x`，估值卡保留顯示目前本益比，但「採用 PE」改用預設 `35x`，並在 helper 顯示 `目前 PE 250.1x 過高，改用預設 35x`；手動 PE 仍可覆寫。
+- [x] 驗證：3189 自動估值改為 EPS `23.64` × PE `35.0x`，合理價約 `NT$827.37`、空間約 `-0.3%`；手動 PE `50x` 可即時改為合理價約 `NT$1,181.96`；`pnpm run lint`、`pnpm run build` passed.

@@ -358,7 +358,12 @@ export default function App() {
     const manualPe = parseInputNumber(valuationInputs.fairPe);
     const autoEps = stock.epsForward ?? stock.trailingEps;
     const scenarioEps = manualEps ?? autoEps;
-    const referencePe = manualPe ?? stock.trailingPE ?? 35;
+    const autoPeTooHigh = stock.trailingPE != null && stock.trailingPE > 100;
+    const referencePe = manualPe ?? (
+      stock.trailingPE != null && !autoPeTooHigh
+        ? stock.trailingPE
+        : 35
+    );
 
     const epsSource = manualEps !== null
       ? "手動 2027E EPS"
@@ -369,9 +374,11 @@ export default function App() {
           : "尚無 EPS 資料";
     const peSource = manualPe !== null
       ? "手動合理 PE"
-      : stock.trailingPE != null
-        ? "目前 trailing PE"
-        : "預設 35x";
+      : autoPeTooHigh
+        ? `目前 PE ${stock.trailingPE?.toFixed(1)}x 過高，改用預設 35x`
+        : stock.trailingPE != null
+          ? "目前 trailing PE"
+          : "預設 35x";
 
     const conservativeTarget = scenarioEps !== null ? scenarioEps * referencePe * 0.85 : null;
     const fairTarget = scenarioEps !== null ? scenarioEps * referencePe : null;
@@ -1058,7 +1065,7 @@ export default function App() {
                           <div className="space-y-4">
                             <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-5 text-slate-600">
                               <div className="mb-1 font-black text-blue-700">少填一點，先看方向</div>
-                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用交易所本益比，沒有才用 Yahoo / 35x。</div>
+                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用交易所本益比；若目前 PE 超過 100x、可能受低基期扭曲，先改用 35x，可手動覆寫。</div>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1071,7 +1078,7 @@ export default function App() {
                               {field(
                                 "fairPe",
                                 "合理 PE（可選）",
-                                data.trailingPE != null ? data.trailingPE.toFixed(1) : "35",
+                                valuation.referencePe != null ? valuation.referencePe.toFixed(1) : "35",
                                 `目前採用：${formatValue(valuation.referencePe, 1)}x · ${valuation.peSource}`
                               )}
                             </div>
