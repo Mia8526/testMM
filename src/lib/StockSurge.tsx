@@ -1,14 +1,5 @@
 // StockSurge v5 - 2026/06/11
 import { useEffect, useState, useCallback, type CSSProperties } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
 import { RefreshCw, TrendingUp, Flame, AlertCircle, BookmarkPlus, Check } from "lucide-react";
 
 // ─── 型別定義 ─────────────────────────────────────────────────────────────────
@@ -699,6 +690,7 @@ export default function StockSurge({ onAddToWatchlist }: {
   const [cacheSavedAt, setCacheSavedAt] = useState("");
   const [usingCache, setUsingCache] = useState(false);
   const [addedCodes, setAddedCodes] = useState<Set<string>>(new Set());
+  const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
 
   // ── 主要資料載入邏輯 ──────────────────────────────────────────────────────
 
@@ -865,6 +857,12 @@ export default function StockSurge({ onAddToWatchlist }: {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    if (selectedIndustry && stocks.length > 0 && !stocks.some((s) => s.ind === selectedIndustry)) {
+      setSelectedIndustry(null);
+    }
+  }, [selectedIndustry, stocks]);
+
   const handleAddToWatchlist = useCallback((s: StockRow) => {
     if (!onAddToWatchlist) return;
     onAddToWatchlist({
@@ -946,12 +944,19 @@ export default function StockSurge({ onAddToWatchlist }: {
   stocks.forEach((s) => { indMap[s.ind] = (indMap[s.ind] ?? 0) + 1; });
   const indEntries = Object.entries(indMap).sort((a, b) => b[1] - a[1]);
   const maxInd = indEntries[0]?.[1] ?? 1;
+  const selectedIndustryRows = selectedIndustry
+    ? stocks
+        .filter((s) => s.ind === selectedIndustry)
+        .sort((a, b) => qualityScore(b) - qualityScore(a))
+    : [];
+  const selectedIndustryAmount = selectedIndustryRows.reduce((sum, s) => sum + (s.amount ?? 0), 0);
+  const selectedIndustryBottomCount = selectedIndustryRows.filter(isBottom).length;
+  const selectedIndustryReboundCount = selectedIndustryRows.filter(isVolumeRebound).length;
   const qualityCount = stocks.filter(isQuality).length;
   const bottomCount = stocks.filter(isBottom).length;
   const reboundCount = stocks.filter(isVolumeRebound).length;
   const attentionCount = stocks.filter((s) => s.attention).length;
   const dispositionCount = stocks.filter((s) => s.disposition).length;
-  const chartData = indEntries.slice(0, 12).map(([name, count]) => ({ name, count }));
   const isRefreshing =
     status === "loading" ||
     loadNote.includes("連線") ||
@@ -1292,62 +1297,143 @@ export default function StockSurge({ onAddToWatchlist }: {
             </div>
           </div>
 
-          {/* ── 產業卡片 ── */}
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)", marginBottom: 10 }}>
-            今日強勢股產業分布
+          {/* ── 產業分類 ── */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
+                今日強勢股產業分類
+              </div>
+              <div style={{ fontSize: 11, color: "var(--c-muted)", marginTop: 3 }}>
+                點分類可查看該產業細項；再點一次可收合
+              </div>
+            </div>
+            {selectedIndustry && (
+              <button
+                type="button"
+                onClick={() => setSelectedIndustry(null)}
+                style={{
+                  border: "1px solid var(--c-border)", borderRadius: 8, cursor: "pointer",
+                  padding: "6px 10px", fontSize: 12, background: "var(--c-surface)", color: "var(--c-muted)",
+                }}
+              >
+                清除分類
+              </button>
+            )}
           </div>
           <div style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: 8, marginBottom: 24,
+            gap: 8, marginBottom: selectedIndustry ? 12 : 24,
           }}>
-            {indEntries.map(([ind, cnt]) => (
-              <div key={ind} style={{
-                background: "var(--c-surface)", border: "1px solid var(--c-border)",
-                borderRadius: 10, padding: "10px 12px",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: 13 }}>{ind}</span>
-                  <span style={{ fontSize: 20, fontWeight: 600, color: "var(--c-up)" }}>{cnt}</span>
-                </div>
-                <div style={{ height: 3, borderRadius: 2, background: "var(--c-surface2)" }}>
-                  <div style={{
-                    height: 3, borderRadius: 2, background: "var(--c-up)",
-                    width: `${(cnt / maxInd) * 100}%`,
-                  }} />
-                </div>
-              </div>
-            ))}
+            {indEntries.map(([ind, cnt]) => {
+              const active = selectedIndustry === ind;
+              return (
+                <button
+                  key={ind}
+                  type="button"
+                  onClick={() => setSelectedIndustry(active ? null : ind)}
+                  aria-pressed={active}
+                  style={{
+                    textAlign: "left",
+                    background: active ? "rgba(240,92,92,0.10)" : "var(--c-surface)",
+                    border: active ? "1px solid rgba(240,92,92,0.45)" : "1px solid var(--c-border)",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    color: "var(--c-text)",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    boxShadow: active ? "0 0 0 1px rgba(240,92,92,0.12) inset" : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 13 }}>{ind}</span>
+                    <span style={{ fontSize: 20, fontWeight: 600, color: "var(--c-up)" }}>{cnt}</span>
+                  </div>
+                  <div style={{ height: 3, borderRadius: 2, background: "var(--c-surface2)" }}>
+                    <div style={{
+                      height: 3, borderRadius: 2, background: active ? "var(--c-amber)" : "var(--c-up)",
+                      width: `${(cnt / maxInd) * 100}%`,
+                    }} />
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
-          {/* ── 長條圖 ── */}
-          <div style={{
-            background: "var(--c-surface)", border: "1px solid var(--c-border)",
-            borderRadius: 12, padding: "20px 20px 16px", marginBottom: 16,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)", marginBottom: 16 }}>
-              產業分布（前 12 名）
+          {selectedIndustry && (
+            <div style={{
+              background: "var(--c-surface)", border: "1px solid var(--c-border)",
+              borderRadius: 12, overflow: "hidden", marginBottom: 24,
+            }}>
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+                padding: "14px 16px", borderBottom: "1px solid var(--c-border)", background: "var(--c-surface2)",
+              }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{selectedIndustry} 細項</div>
+                  <div style={{ fontSize: 11, color: "var(--c-muted)", marginTop: 3 }}>
+                    依精選分數排序，方便先看最值得追蹤的股票
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: "var(--c-muted)" }}>股數 {selectedIndustryRows.length}</span>
+                  <span style={{ fontSize: 11, color: "var(--c-muted)" }}>成交 {formatAmount(selectedIndustryAmount || null)}</span>
+                  <span style={{ fontSize: 11, color: "var(--c-amber)" }}>底部 {selectedIndustryBottomCount || "—"}</span>
+                  <span style={{ fontSize: 11, color: "var(--c-blue)" }}>轉強 {selectedIndustryReboundCount || "—"}</span>
+                </div>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--c-border)" }}>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>代號</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>股名</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>市場</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>股價</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>今日</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>成交</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>14日</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>訊號</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedIndustryRows.map((s, i) => {
+                      const pattern = getSurgePattern(s);
+                      return (
+                        <tr
+                          key={`industry-${s.code}-${s.market}`}
+                          style={{
+                            borderTop: "1px solid var(--c-border)",
+                            background: i % 2 === 0 ? "var(--c-surface)" : "transparent",
+                          }}
+                        >
+                          <td style={{ padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{s.code}</td>
+                          <td style={{ padding: "9px 12px", fontSize: 13, whiteSpace: "nowrap" }}>
+                            {s.name}
+                            {s.disposition && <RiskBadge type="disposition" title={s.flagPeriod ? `處置期間：${s.flagPeriod}` : s.flagReason} />}
+                            {!s.disposition && s.attention && <RiskBadge type="attention" title={s.flagReason} />}
+                          </td>
+                          <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--c-muted)", whiteSpace: "nowrap" }}>{s.market}</td>
+                          <td style={{ padding: "9px 12px", fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.price.toLocaleString()}</td>
+                          <td style={{ padding: "9px 12px", fontSize: 13, textAlign: "right", color: "var(--c-up)", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>+{s.chg.toFixed(2)}%</td>
+                          <td style={{ padding: "9px 12px", fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatAmount(s.amount)}</td>
+                          <td style={{
+                            padding: "9px 12px", fontSize: 13, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                            color: s.c14 === null ? "var(--c-muted)" : s.c14 >= 0 ? "var(--c-up)" : "var(--c-dn)",
+                          }}>
+                            {s.c14 === null ? "—" : `${s.c14 >= 0 ? "+" : ""}${s.c14}%`}
+                          </td>
+                          <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
+                            {pattern ? <PatternBadge pattern={pattern} /> : <span style={{ fontSize: 11, color: "var(--c-muted)" }}>—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 36)}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 28, top: 0, bottom: 0 }}>
-                <XAxis type="number" tick={{ fill: "#6b7394", fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fill: "#9ca3b0", fontSize: 12 }} axisLine={false} tickLine={false} width={82} />
-                <Tooltip
-                  cursor={{ fill: "rgba(255,255,255,0.03)" }}
-                  contentStyle={{
-                    background: "#1c2030", border: "1px solid #252a3a",
-                    borderRadius: 8, color: "#e4e8f0", fontSize: 12,
-                  }}
-                  formatter={(v: number) => [`${v} 支`, "股數"]}
-                />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={18}>
-                  {chartData.map((_, idx) => (
-                    <Cell key={idx} fill={`rgba(240,92,92,${Math.max(0.4, 1 - idx * 0.055)})`} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          )}
 
           {/* 備注 */}
           <div style={{ fontSize: 11, color: "var(--c-muted)", lineHeight: 1.9 }}>

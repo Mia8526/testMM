@@ -47,3 +47,10 @@
 - [x] 修正：底部啟動放寬為 14日漲幅 `<8%`、5日量能 `>80%`、10日震幅 `≤18%`；cache version bump 到 `v7`，避免舊分類暫存沿用。
 - [x] UX：將原 `高波動反彈` 改名為 `轉強反彈`，並在頁面補上「轉強/反彈不是低接訊號，適合先觀察續航，等回測不破或隔日續強」的說明。
 - [x] 驗證：standalone 分類檢查顯示新規則會抓到 2 檔 near-bottom 候選；`pnpm run lint`、`pnpm run build` passed。local browser 的每日強勢股 API smoke 受 dev server 未代理 Vercel API 限制，已用官方 API standalone script 補驗證。
+
+## 2026-07-03 — 每日強勢股產業分類互動化
+
+- [x] 判斷：下方 Recharts 長條圖與上方產業分布卡片資訊重複，且目前使用不到；保留卡片內小比例條即可。
+- [x] 修正：移除下方產業長條圖與 `StockSurge.tsx` 內 Recharts import / chartData。
+- [x] UX：產業分類卡片改為可點選；點擊後顯示該產業細項表，含股數、成交金額、底部/轉強數、股票代號、股名、市場、價格、今日漲幅、成交、14日與訊號；再點一次或按「清除分類」可收合。
+- [x] 驗證：`pnpm run lint`、`pnpm run build` passed；本機瀏覽器用暫存測試資料點擊「半導體業」後正確顯示分類細項表。
