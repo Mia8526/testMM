@@ -8,4 +8,5 @@
 - 2026-07-02: Reviewed 每日強勢股分類; relaxed 底部啟動 from c14<5/vol5>100/range10<15 to c14<8/vol5>80/range10≤18, renamed high-volatility rebound to 轉強反彈, and added usage guidance.
 - 2026-07-03: Removed unused 每日強勢股 industry bar chart and made industry category cards clickable, showing per-category stock detail rows.
 - 2026-07-09: Updated 情境估值 PE/EPS source handling for 上櫃 stocks; 8383 now uses TPEX official PE + official close to infer trailing EPS, then recalculates current implied PE from the latest quote.
-- Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 8383/3189/3167/2330, standalone surge-classification data check, and browser smoke tests for 8383 auto valuation + manual PE override and 3189 auto/default PE + manual PE override passed. Latest UI change verified with `pnpm run lint`, `pnpm run build`, and local browser click smoke test for industry details.
+- 2026-07-09: Added 趨勢視覺化 box-range detection; the analysis page now shows 箱型上下緣、目前位置、區間寬度、操作提醒, and overlays box top/bottom on the 200-day chart.
+- Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 8383/3189/2330 rangeBox output, 8383 valuation API, and browser smoke test for 8383 box-range card + chart labels passed.

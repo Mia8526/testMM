@@ -22,10 +22,11 @@ import {
   XAxis, 
   YAxis, 
   CartesianGrid, 
-  Tooltip, 
+  Tooltip,
   ResponsiveContainer,
   Legend,
-  ReferenceLine
+  ReferenceLine,
+  ReferenceArea
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -34,6 +35,17 @@ import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+interface RangeBox {
+  isBoxRange: boolean;
+  lookbackDays: number;
+  upper: number | null;
+  lower: number | null;
+  widthPct: number | null;
+  currentPositionPct: number | null;
+  status: string;
+  action: string;
 }
 
 interface StockData {
@@ -57,6 +69,7 @@ interface StockData {
   baseDays: number;
   baseType: string;
   baseLabel: string;
+  rangeBox: RangeBox;
   pivotPrice: number;
   buyZoneMax: number;
   suggestedStopLoss: number;
@@ -996,6 +1009,58 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* 箱型區間提醒 */}
+                  {data.rangeBox && (
+                    <div className={cn(
+                      "sleek-card border-l-4",
+                      data.rangeBox.isBoxRange ? "border-l-amber-400" : "border-l-slate-300"
+                    )}>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">📦 箱型區間提醒</h3>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            用近 {data.rangeBox.lookbackDays} 個交易日估算上下緣，避免把箱頂誤看成突破買點。
+                          </p>
+                        </div>
+                        <span className={cn(
+                          "inline-flex w-fit rounded-full px-3 py-1 text-xs font-black",
+                          data.rangeBox.status.includes("上緣") || data.rangeBox.status.includes("測試")
+                            ? "bg-amber-50 text-amber-700 border border-amber-200"
+                            : data.rangeBox.status.includes("下緣")
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : data.rangeBox.isBoxRange
+                                ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                : "bg-slate-50 text-slate-500 border border-slate-200"
+                        )}>
+                          {data.rangeBox.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+                          <div className="text-[11px] font-bold text-slate-500">箱型下緣</div>
+                          <div className="mt-1 text-lg font-black text-emerald-700">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+                          <div className="text-[11px] font-bold text-slate-500">箱型上緣</div>
+                          <div className="mt-1 text-lg font-black text-amber-700">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+                          <div className="text-[11px] font-bold text-slate-500">目前位置</div>
+                          <div className="mt-1 text-lg font-black text-slate-900">{formatValue(data.rangeBox.currentPositionPct, 0)}%</div>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
+                          <div className="text-[11px] font-bold text-slate-500">區間寬度</div>
+                          <div className="mt-1 text-lg font-black text-slate-900">{formatValue(data.rangeBox.widthPct, 1)}%</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-3 text-sm font-semibold leading-6 text-amber-800">
+                        {data.rangeBox.action}
+                      </div>
+                    </div>
+                  )}
+
                   {/* 2027 情境估值 */}
                   {(() => {
                     const valuation = getValuation(data);
@@ -1161,6 +1226,9 @@ export default function App() {
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-rose-500"></span> MA200</div>
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-slate-400"></span> 52W HIGH</div>
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-sky-300"></span> VCP 高點</div>
+                        {data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
+                          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2 rounded-sm bg-amber-200/70 border border-amber-300"></span> 箱型</div>
+                        )}
                       </div>
                     </div>
                     
@@ -1181,6 +1249,35 @@ export default function App() {
                             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                             formatter={(value: any) => typeof value === 'number' ? value.toFixed(2) : value}
                           />
+                          {data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
+                            <ReferenceArea
+                              y1={data.rangeBox.lower}
+                              y2={data.rangeBox.upper}
+                              label={{
+                                position: 'insideTopLeft',
+                                value: `箱型 ${data.rangeBox.lower.toFixed(2)}-${data.rangeBox.upper.toFixed(2)}`,
+                                fill: '#b45309',
+                                fontSize: 10,
+                                fontWeight: 'bold'
+                              }}
+                            />
+                          )}
+                          {data.rangeBox?.upper != null && (
+                            <ReferenceLine
+                              y={data.rangeBox.upper}
+                              stroke="#f59e0b"
+                              strokeDasharray="5 4"
+                              label={{ position: 'insideRight', value: `箱頂 ${data.rangeBox.upper.toFixed(2)}`, fill: '#b45309', fontSize: 9, fontWeight: 'bold' }}
+                            />
+                          )}
+                          {data.rangeBox?.lower != null && (
+                            <ReferenceLine
+                              y={data.rangeBox.lower}
+                              stroke="#10b981"
+                              strokeDasharray="5 4"
+                              label={{ position: 'insideRight', value: `箱底 ${data.rangeBox.lower.toFixed(2)}`, fill: '#059669', fontSize: 9, fontWeight: 'bold' }}
+                            />
+                          )}
                           {data.pivotPrice > 0 && (
                             <ReferenceLine 
                               y={data.pivotPrice} 

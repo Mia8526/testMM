@@ -30,6 +30,104 @@ function calculateEMA(prices: (number | null | undefined)[], period: number): nu
   return ema;
 }
 
+function percentile(values: number[], p: number): number | null {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const idx = (sorted.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (idx - lower);
+}
+
+function detectRangeBox(data: any[], currentPrice: number) {
+  const lookbackDays = 45;
+  const minDays = 25;
+  const recent = data.slice(-lookbackDays).filter((d) =>
+    Number.isFinite(d.high) && Number.isFinite(d.low) && Number.isFinite(d.close)
+  );
+
+  if (recent.length < minDays || !Number.isFinite(currentPrice) || currentPrice <= 0) {
+    return {
+      isBoxRange: false,
+      lookbackDays: recent.length,
+      upper: null,
+      lower: null,
+      widthPct: null,
+      currentPositionPct: null,
+      status: '資料不足',
+      action: '近 45 日資料不足，先不用硬判斷箱型。',
+    };
+  }
+
+  const highs = recent.map((d) => Number(d.high));
+  const lows = recent.map((d) => Number(d.low));
+  const closes = recent.map((d) => Number(d.close));
+  const upper = percentile(highs, 0.9);
+  const lower = percentile(lows, 0.1);
+
+  if (upper === null || lower === null || upper <= lower) {
+    return {
+      isBoxRange: false,
+      lookbackDays: recent.length,
+      upper: null,
+      lower: null,
+      widthPct: null,
+      currentPositionPct: null,
+      status: '尚無明確箱型',
+      action: '上下緣不清楚，先看均線與樞紐訊號。',
+    };
+  }
+
+  const mid = (upper + lower) / 2;
+  const width = upper - lower;
+  const widthPct = (width / mid) * 100;
+  const tolerance = Math.max(width * 0.12, currentPrice * 0.015);
+  const upperTouches = highs.filter((v) => v >= upper - tolerance).length;
+  const lowerTouches = lows.filter((v) => v <= lower + tolerance).length;
+  const first10 = closes.slice(0, 10);
+  const last10 = closes.slice(-10);
+  const firstAvg = first10.reduce((s, v) => s + v, 0) / first10.length;
+  const lastAvg = last10.reduce((s, v) => s + v, 0) / last10.length;
+  const slopePct = ((lastAvg - firstAvg) / mid) * 100;
+  const isBoxRange = widthPct >= 4 && widthPct <= 30 && upperTouches >= 2 && lowerTouches >= 2 && Math.abs(slopePct) <= 18;
+  const rawPositionPct = ((currentPrice - lower) / width) * 100;
+  const currentPositionPct = Math.max(0, Math.min(100, rawPositionPct));
+
+  let status = '尚無明確箱型';
+  let action = `近 ${recent.length} 日區間約 ${lower.toFixed(2)}～${upper.toFixed(2)}，但箱型訊號還不夠明確。`;
+
+  if (isBoxRange) {
+    if (currentPrice > upper * 1.03) {
+      status = '箱型突破確認中';
+      action = `已高於箱型上緣 ${upper.toFixed(2)} 超過 3%，下一步看回測是否守住上緣，不建議追在急拉尖端。`;
+    } else if (currentPrice > upper) {
+      status = '測試箱型上緣';
+      action = `正在測試上緣 ${upper.toFixed(2)}，等收盤站穩或回測不破再當突破，避免買在箱頂。`;
+    } else if (currentPositionPct >= 80) {
+      status = '箱型上緣壓力區';
+      action = `接近上緣 ${upper.toFixed(2)}，風險是把箱頂誤判成突破；較佳策略是等有效突破或拉回靠近中下緣。`;
+    } else if (currentPositionPct <= 25) {
+      status = '箱型下緣支撐區';
+      action = `接近下緣 ${lower.toFixed(2)}，若量縮守住可觀察；跌破下緣要小心箱型失效。`;
+    } else {
+      status = '箱型中段整理';
+      action = `目前在箱型中段，先看 ${lower.toFixed(2)}～${upper.toFixed(2)} 區間，不必急著追價。`;
+    }
+  }
+
+  return {
+    isBoxRange,
+    lookbackDays: recent.length,
+    upper,
+    lower,
+    widthPct,
+    currentPositionPct,
+    status,
+    action,
+  };
+}
+
 function getYahooFinance() {
   let mod: any = yf;
   if (mod.default) mod = mod.default;
@@ -751,6 +849,8 @@ async function startServer(): Promise<void> {
         baseLabel = "標準整理";
       }
 
+      const rangeBox = detectRangeBox(data, currentPrice);
+
       res.json({
         symbol,
         shortName,
@@ -763,6 +863,7 @@ async function startServer(): Promise<void> {
         baseDays,
         baseType,
         baseLabel,
+        rangeBox,
         vcpHigh,
         isExtended,
         ma50Extension: ma50Extension.toFixed(2),
