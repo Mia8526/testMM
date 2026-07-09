@@ -83,6 +83,7 @@ interface StockData {
   epsGrowth: string | null;
   trailingEps: number | null;
   trailingPE: number | null;
+  trailingPESource: 'TWSE' | 'TPEX' | 'Yahoo' | null;
   recentEpsGrowth: string | null;
   chartData: any[];
 }
@@ -359,6 +360,13 @@ export default function App() {
     const autoEps = stock.epsForward ?? stock.trailingEps;
     const scenarioEps = manualEps ?? autoEps;
     const autoPeTooHigh = stock.trailingPE != null && stock.trailingPE > 100;
+    const trailingPeSourceLabel = stock.trailingPESource === 'TWSE'
+      ? "TWSE 官方本益比換算"
+      : stock.trailingPESource === 'TPEX'
+        ? "櫃買中心官方本益比換算"
+        : stock.trailingPESource === 'Yahoo'
+          ? "Yahoo trailing PE"
+          : "目前 trailing PE";
     const referencePe = manualPe ?? (
       stock.trailingPE != null && !autoPeTooHigh
         ? stock.trailingPE
@@ -377,7 +385,7 @@ export default function App() {
       : autoPeTooHigh
         ? `目前 PE ${stock.trailingPE?.toFixed(1)}x 過高，改用預設 35x`
         : stock.trailingPE != null
-          ? "目前 trailing PE"
+          ? trailingPeSourceLabel
           : "預設 35x";
 
     const conservativeTarget = scenarioEps !== null ? scenarioEps * referencePe * 0.85 : null;
@@ -1065,7 +1073,7 @@ export default function App() {
                           <div className="space-y-4">
                             <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-5 text-slate-600">
                               <div className="mb-1 font-black text-blue-700">少填一點，先看方向</div>
-                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用交易所本益比；若目前 PE 超過 100x、可能受低基期扭曲，先改用 35x，可手動覆寫。</div>
+                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用 TWSE / 櫃買中心官方本益比換算；若目前 PE 超過 100x、可能受低基期扭曲，先改用 35x，可手動覆寫。</div>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

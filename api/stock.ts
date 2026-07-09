@@ -66,24 +66,36 @@ function parseOptionalNumber(value: unknown): number | null {
 
 type ExchangeValuation = {
   trailingPE: number | null;
-  source: 'TWSE' | 'Yahoo';
+  referencePrice: number | null;
+  source: 'TWSE' | 'TPEX';
 };
 
 let listedValuationMapCache: Record<string, ExchangeValuation> | null = null;
 let listedValuationMapPromise: Promise<Record<string, ExchangeValuation>> | null = null;
+let otcValuationMapCache: Record<string, ExchangeValuation> | null = null;
+let otcValuationMapPromise: Promise<Record<string, ExchangeValuation>> | null = null;
 
 async function getListedValuationMap(): Promise<Record<string, ExchangeValuation>> {
   if (listedValuationMapCache) return listedValuationMapCache;
   if (!listedValuationMapPromise) {
     listedValuationMapPromise = (async () => {
-      const rows = await fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL');
+      const [rows, closeRows] = await Promise.all([
+        fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL'),
+        fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
+      ]);
+      const closeMap: Record<string, number> = {};
+      for (const row of closeRows) {
+        const code = String(row.Code ?? row['證券代號'] ?? '').trim();
+        const close = parseOptionalNumber(row.ClosingPrice ?? row['收盤價']);
+        if (code && close !== null && close > 0) closeMap[code] = close;
+      }
       const map: Record<string, ExchangeValuation> = {};
 
       for (const row of rows) {
         const code = String(row.Code ?? row['股票代號'] ?? '').trim();
         const trailingPE = parseOptionalNumber(row.PEratio ?? row['本益比']);
         if (code && trailingPE !== null && trailingPE > 0) {
-          map[code] = { trailingPE, source: 'TWSE' };
+          map[code] = { trailingPE, referencePrice: closeMap[code] ?? null, source: 'TWSE' };
         }
       }
 
@@ -96,10 +108,49 @@ async function getListedValuationMap(): Promise<Record<string, ExchangeValuation
   return listedValuationMapPromise;
 }
 
+async function getOtcValuationMap(): Promise<Record<string, ExchangeValuation>> {
+  if (otcValuationMapCache) return otcValuationMapCache;
+  if (!otcValuationMapPromise) {
+    otcValuationMapPromise = (async () => {
+      const [rows, closeRows] = await Promise.all([
+        fetchJsonArray('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis'),
+        fetchJsonArray('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'),
+      ]);
+      const closeMap: Record<string, number> = {};
+      for (const row of closeRows) {
+        const code = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
+        const close = parseOptionalNumber(row.Close ?? row.ClosePrice ?? row['收盤價']);
+        if (code && close !== null && close > 0) closeMap[code] = close;
+      }
+      const map: Record<string, ExchangeValuation> = {};
+
+      for (const row of rows) {
+        const code = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
+        const trailingPE = parseOptionalNumber(row.PriceEarningRatio ?? row.PEratio ?? row['本益比']);
+        if (code && trailingPE !== null && trailingPE > 0) {
+          map[code] = { trailingPE, referencePrice: closeMap[code] ?? null, source: 'TPEX' };
+        }
+      }
+
+      otcValuationMapCache = map;
+      return map;
+    })().finally(() => {
+      otcValuationMapPromise = null;
+    });
+  }
+  return otcValuationMapPromise;
+}
+
 async function getExchangeValuation(code: string, marketType: string): Promise<ExchangeValuation | null> {
-  if (marketType !== '上市') return null;
-  const map = await getListedValuationMap();
-  return map[code] ?? null;
+  if (marketType === '上市') {
+    const map = await getListedValuationMap();
+    return map[code] ?? null;
+  }
+  if (marketType === '上櫃') {
+    const map = await getOtcValuationMap();
+    return map[code] ?? null;
+  }
+  return null;
 }
 
 async function getListedNameMap(): Promise<Record<string, string>> {
@@ -429,6 +480,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let epsGrowth: string | null = null;
     let trailingEps: number | null = null;
     let trailingPE: number | null = null;
+    let trailingPESource: 'TWSE' | 'TPEX' | 'Yahoo' | null = null;
     let recentEpsGrowth: string | null = null;
 
     try {
@@ -441,12 +493,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         fetchResult?.quote?.trailingEps ?? fetchResult?.quote?.epsTrailingTwelveMonths
       );
 
-      // 台股上市本益比優先採 TWSE BWIBBU_ALL，避免 Yahoo 台股 EPS/PE 延遲或單位異常。
-      trailingPE = exchangeValuation?.trailingPE ?? yahooTrailingPE;
-      trailingEps = yahooTrailingEps;
-      if (trailingPE !== null && trailingPE > 0 && currentPrice > 0) {
-        trailingEps = currentPrice / trailingPE;
+      // 台股本益比優先採交易所官方資料（上市 TWSE、上櫃 TPEX），避免 Yahoo 台股 EPS/PE 延遲或單位異常。
+      // 若官方 PE 附有官方收盤價，先反推出近 12 月 EPS，再用即時/最新股價換算目前 PE，避免把前一日 PE 直接套在盤中股價。
+      const exchangeTrailingEps = exchangeValuation?.trailingPE && exchangeValuation.referencePrice
+        ? exchangeValuation.referencePrice / exchangeValuation.trailingPE
+        : null;
+      trailingEps = exchangeTrailingEps ?? yahooTrailingEps;
+      if (trailingEps !== null && trailingEps > 0 && currentPrice > 0) {
+        trailingPE = currentPrice / trailingEps;
+      } else {
+        trailingPE = exchangeValuation?.trailingPE ?? yahooTrailingPE;
+        if (trailingEps === null && trailingPE !== null && trailingPE > 0 && currentPrice > 0) {
+          trailingEps = currentPrice / trailingPE;
+        }
       }
+      trailingPESource = exchangeValuation?.source ?? (yahooTrailingPE !== null ? 'Yahoo' : null);
 
       // 只有在 Yahoo 有同步的年度 EPS 或沒有更可靠的 trailing EPS 時才採 Forward EPS。
       // 3167 這類個股可能回到過舊/過低的 forwardEps，會低估情境估值。
@@ -718,6 +779,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       epsGrowth,                           // 預估成長率（明年 vs 今年預估）
       trailingEps,                         // 近 12 個月實際 EPS
       trailingPE: trailingPE !== null ? Math.round(trailingPE * 10) / 10 : null,  // 本益比（一位小數）
+      trailingPESource,                    // 本益比來源：TWSE / TPEX / Yahoo
       recentEpsGrowth,                     // 近四季實際成長率（近兩季 vs 前兩季）
       chartData: data.slice(-200).map((d, i, arr) => {
         // Calculate MA indices more efficiently

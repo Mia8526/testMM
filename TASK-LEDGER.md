@@ -54,3 +54,11 @@
 - [x] 修正：移除下方產業長條圖與 `StockSurge.tsx` 內 Recharts import / chartData。
 - [x] UX：產業分類卡片改為可點選；點擊後顯示該產業細項表，含股數、成交金額、底部/轉強數、股票代號、股名、市場、價格、今日漲幅、成交、14日與訊號；再點一次或按「清除分類」可收合。
 - [x] 驗證：`pnpm run lint`、`pnpm run build` passed；本機瀏覽器用暫存測試資料點擊「半導體業」後正確顯示分類細項表。
+
+## 2026-07-09 — 檢查 8383 情境估值 / 上櫃本益比來源
+
+- [x] Repro：本機 `/api/stock?ticker=8383` 會解析為 `8383.TWO` 千附；原本上櫃股估值只吃 Yahoo trailing PE，未對齊櫃買中心官方本益比資料。
+- [x] 對照：TPEX `tpex_mainboard_peratio_analysis` 對 8383 官方本益比為 `17.04`；TPEX 上櫃收盤行情前日收盤 `63.40`；最新 Yahoo quote `69.70`。
+- [x] 修正：上市股 TWSE / 上櫃股 TPEX 皆同時抓官方本益比與官方收盤價，先反推近 12 月 EPS，再用最新股價換算目前 PE；API 回傳 `trailingPESource`，UI 會顯示 PE 來源。
+- [x] 8383 實測：`近12月EPS 3.72`、`採用 PE 18.7x`、合理價約 `NT$69.58`；手動 PE `20x` 後合理價約 `NT$74.41`，畫面即時重算。
+- [x] 驗證：`pnpm run lint`、`pnpm run build`、API assertion for 8383、瀏覽器查詢 8383 與手動 PE 覆寫 passed。
