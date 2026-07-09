@@ -90,30 +90,45 @@ function detectRangeBox(data: any[], currentPrice: number) {
   const firstAvg = first10.reduce((s, v) => s + v, 0) / first10.length;
   const lastAvg = last10.reduce((s, v) => s + v, 0) / last10.length;
   const slopePct = ((lastAvg - firstAvg) / mid) * 100;
-  const isBoxRange = widthPct >= 4 && widthPct <= 30 && upperTouches >= 2 && lowerTouches >= 2 && Math.abs(slopePct) <= 18;
+  const isWidthOk = widthPct >= 4 && widthPct <= 30;
+  const hasEnoughTouches = upperTouches >= 2 && lowerTouches >= 2;
+  const isSlopeOk = Math.abs(slopePct) <= 18;
+  const isBoxRange = isWidthOk && hasEnoughTouches && isSlopeOk;
   const rawPositionPct = ((currentPrice - lower) / width) * 100;
   const currentPositionPct = Math.max(0, Math.min(100, rawPositionPct));
 
   let status = '尚無明確箱型';
-  let action = `近 ${recent.length} 日區間約 ${lower.toFixed(2)}～${upper.toFixed(2)}，但箱型訊號還不夠明確。`;
+  let action = `近 ${recent.length} 日參考區間約 ${lower.toFixed(2)}～${upper.toFixed(2)}，但箱型訊號還不夠明確，不畫箱型。`;
 
-  if (isBoxRange) {
-    if (currentPrice > upper * 1.03) {
-      status = '箱型突破確認中';
-      action = `已高於箱型上緣 ${upper.toFixed(2)} 超過 3%，下一步看回測是否守住上緣，不建議追在急拉尖端。`;
-    } else if (currentPrice > upper) {
-      status = '測試箱型上緣';
-      action = `正在測試上緣 ${upper.toFixed(2)}，等收盤站穩或回測不破再當突破，避免買在箱頂。`;
-    } else if (currentPositionPct >= 80) {
-      status = '箱型上緣壓力區';
-      action = `接近上緣 ${upper.toFixed(2)}，風險是把箱頂誤判成突破；較佳策略是等有效突破或拉回靠近中下緣。`;
-    } else if (currentPositionPct <= 25) {
-      status = '箱型下緣支撐區';
-      action = `接近下緣 ${lower.toFixed(2)}，若量縮守住可觀察；跌破下緣要小心箱型失效。`;
-    } else {
-      status = '箱型中段整理';
-      action = `目前在箱型中段，先看 ${lower.toFixed(2)}～${upper.toFixed(2)} 區間，不必急著追價。`;
+  if (!isBoxRange) {
+    if (currentPrice > upper * 1.03 || slopePct > 18) {
+      status = '非箱型：趨勢太強';
+      action = `這比較像單邊上攻，不是箱型。近 ${recent.length} 日漲勢斜率約 ${slopePct.toFixed(1)}%，區間寬度 ${widthPct.toFixed(1)}%；不要用箱頂/箱底模型低接，先等整理或回測。`;
+    } else if (slopePct < -18) {
+      status = '非箱型：下降趨勢明顯';
+      action = `這比較像下行趨勢，不是箱型。近 ${recent.length} 日斜率約 ${slopePct.toFixed(1)}%，先等止跌與上下緣重新成形。`;
+    } else if (!isWidthOk) {
+      status = widthPct > 30 ? '非箱型：波動過大' : '非箱型：區間太窄';
+      action = `近 ${recent.length} 日區間寬度 ${widthPct.toFixed(1)}%，不適合標成箱型；先當成參考高低位，不當成買賣箱。`;
+    } else if (!hasEnoughTouches) {
+      status = '非箱型：上下緣碰觸不足';
+      action = `上下緣碰觸次數不足（上緣 ${upperTouches} 次、下緣 ${lowerTouches} 次），還不能確認是箱型。`;
     }
+  } else if (currentPrice > upper * 1.03) {
+    status = '箱型突破確認中';
+    action = `已高於箱型上緣 ${upper.toFixed(2)} 超過 3%，下一步看回測是否守住上緣，不建議追在急拉尖端。`;
+  } else if (currentPrice > upper) {
+    status = '測試箱型上緣';
+    action = `正在測試上緣 ${upper.toFixed(2)}，等收盤站穩或回測不破再當突破，避免買在箱頂。`;
+  } else if (currentPositionPct >= 80) {
+    status = '箱型上緣壓力區';
+    action = `接近上緣 ${upper.toFixed(2)}，風險是把箱頂誤判成突破；較佳策略是等有效突破或拉回靠近中下緣。`;
+  } else if (currentPositionPct <= 25) {
+    status = '箱型下緣支撐區';
+    action = `接近下緣 ${lower.toFixed(2)}，若量縮守住可觀察；跌破下緣要小心箱型失效。`;
+  } else {
+    status = '箱型中段整理';
+    action = `目前在箱型中段，先看 ${lower.toFixed(2)}～${upper.toFixed(2)} 區間，不必急著追價。`;
   }
 
   return {

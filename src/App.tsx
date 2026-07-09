@@ -1019,7 +1019,9 @@ export default function App() {
                         <div>
                           <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">📦 箱型區間提醒</h3>
                           <p className="mt-1 text-xs leading-5 text-slate-500">
-                            用近 {data.rangeBox.lookbackDays} 個交易日估算上下緣，避免把箱頂誤看成突破買點。
+                            {data.rangeBox.isBoxRange
+                              ? `用近 ${data.rangeBox.lookbackDays} 個交易日估算上下緣，避免把箱頂誤看成突破買點。`
+                              : `近 ${data.rangeBox.lookbackDays} 個交易日不符合箱型條件，避免硬套箱頂/箱底模型。`}
                           </p>
                         </div>
                         <span className={cn(
@@ -1038,11 +1040,11 @@ export default function App() {
 
                       <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
                         <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                          <div className="text-[11px] font-bold text-slate-500">箱型下緣</div>
+                          <div className="text-[11px] font-bold text-slate-500">{data.rangeBox.isBoxRange ? "箱型下緣" : "參考低位"}</div>
                           <div className="mt-1 text-lg font-black text-emerald-700">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
                         </div>
                         <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                          <div className="text-[11px] font-bold text-slate-500">箱型上緣</div>
+                          <div className="text-[11px] font-bold text-slate-500">{data.rangeBox.isBoxRange ? "箱型上緣" : "參考高位"}</div>
                           <div className="mt-1 text-lg font-black text-amber-700">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
                         </div>
                         <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
@@ -1055,7 +1057,12 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-3 text-sm font-semibold leading-6 text-amber-800">
+                      <div className={cn(
+                        "mt-4 rounded-xl border p-3 text-sm font-semibold leading-6",
+                        data.rangeBox.isBoxRange
+                          ? "border-amber-100 bg-amber-50/60 text-amber-800"
+                          : "border-slate-200 bg-slate-50 text-slate-600"
+                      )}>
                         {data.rangeBox.action}
                       </div>
                     </div>
@@ -1226,7 +1233,7 @@ export default function App() {
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-rose-500"></span> MA200</div>
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-slate-400"></span> 52W HIGH</div>
                         <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-sky-300"></span> VCP 高點</div>
-                        {data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
+                        {data.rangeBox?.isBoxRange && data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
                           <div className="flex items-center gap-1.5"><span className="w-2.5 h-2 rounded-sm bg-amber-200/70 border border-amber-300"></span> 箱型</div>
                         )}
                       </div>
@@ -1249,7 +1256,7 @@ export default function App() {
                             contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
                             formatter={(value: any) => typeof value === 'number' ? value.toFixed(2) : value}
                           />
-                          {data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
+                          {data.rangeBox?.isBoxRange && data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
                             <ReferenceArea
                               y1={data.rangeBox.lower}
                               y2={data.rangeBox.upper}
@@ -1262,7 +1269,7 @@ export default function App() {
                               }}
                             />
                           )}
-                          {data.rangeBox?.upper != null && (
+                          {data.rangeBox?.isBoxRange && data.rangeBox?.upper != null && (
                             <ReferenceLine
                               y={data.rangeBox.upper}
                               stroke="#f59e0b"
@@ -1270,7 +1277,7 @@ export default function App() {
                               label={{ position: 'insideRight', value: `箱頂 ${data.rangeBox.upper.toFixed(2)}`, fill: '#b45309', fontSize: 9, fontWeight: 'bold' }}
                             />
                           )}
-                          {data.rangeBox?.lower != null && (
+                          {data.rangeBox?.isBoxRange && data.rangeBox?.lower != null && (
                             <ReferenceLine
                               y={data.rangeBox.lower}
                               stroke="#10b981"
