@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import yf from 'yahoo-finance2';
 import { subDays, format } from 'date-fns';
-import { detectRangeBox } from './rangeBox';
+import { detectRangeBox } from './rangeBox.js';
 
 /**
  * Utility functions for technical indicators (Inlined for reliability)
