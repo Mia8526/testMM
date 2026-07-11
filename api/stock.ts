@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import yf from 'yahoo-finance2';
 import { subDays, format } from 'date-fns';
+import { detectRangeBox } from '../src/lib/rangeBox.ts';
 
 /**
  * Utility functions for technical indicators (Inlined for reliability)
@@ -27,7 +28,7 @@ function calculateEMA(prices: (number | null | undefined)[], period: number): nu
   return ema;
 }
 
-function percentile(values: number[], p: number): number | null {
+function percentile_unused(values: number[], p: number): number | null {
   const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
   if (sorted.length === 0) return null;
   const idx = (sorted.length - 1) * p;
@@ -37,7 +38,7 @@ function percentile(values: number[], p: number): number | null {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (idx - lower);
 }
 
-function detectRangeBox(data: any[], currentPrice: number) {
+function detectRangeBox_unused(data: any[], currentPrice: number) {
   const lookbackDays = 45;
   const minDays = 25;
   const recent = data.slice(-lookbackDays).filter((d) =>
@@ -60,8 +61,8 @@ function detectRangeBox(data: any[], currentPrice: number) {
   const highs = recent.map((d) => Number(d.high));
   const lows = recent.map((d) => Number(d.low));
   const closes = recent.map((d) => Number(d.close));
-  const upper = percentile(highs, 0.9);
-  const lower = percentile(lows, 0.1);
+  const upper = percentile_unused(highs, 0.9);
+  const lower = percentile_unused(lows, 0.1);
 
   if (upper === null || lower === null || upper <= lower) {
     return {
