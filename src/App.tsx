@@ -1133,9 +1133,9 @@ export default function App() {
                       <div className="sleek-card">
                         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">2027 情境估值</h3>
+                            <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">2027／2028 目標價情境</h3>
                             <p className="mt-1 text-xs leading-5 text-slate-500">
-                              簡化版：系統先自動用可信 EPS 與交易所 / Yahoo 本益比試算；你只要在有自己假設時，覆寫 EPS 或合理 PE 兩個欄位。
+                              先看未來價格區間；回檔時仍須確認營收與基本面沒有轉弱。
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -1156,9 +1156,9 @@ export default function App() {
 
                         <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
                           <div className="space-y-4">
-                            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-5 text-slate-600">
-                              <div className="mb-1 font-black text-blue-700">少填一點，先看方向</div>
-                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用 TWSE / 櫃買中心官方本益比換算；若目前 PE 超過 100x，或預估 EPS 較近 12 月 EPS 跳升逾 50% 且目前 PE 超過 50x，避免把低基期 PE 與高成長 EPS 混用，先改用 35x，可手動覆寫。</div>
+                            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs leading-5 text-slate-600">
+                              <span className="font-black text-blue-700">空白即自動估算。</span>
+                              <span> 高 PE 或低基期時先降回 35x；需要時再手動調整。</span>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1185,8 +1185,8 @@ export default function App() {
 
                           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                             <div className="mb-3 flex items-center justify-between">
-                              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">估值輸出</span>
-                              <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-500">3 段情境</span>
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">未來目標價</span>
+                              <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-500">非目前合理價</span>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
@@ -1210,24 +1210,24 @@ export default function App() {
 
                             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                               <div className="rounded-xl border border-slate-200 bg-white p-3">
-                                <div className="text-[11px] font-bold text-slate-500">保守價</div>
+                                <div className="text-[11px] font-bold text-slate-500">保守目標</div>
                                 <div className="mt-1 text-lg font-black text-slate-700">{formatTargetPrice(valuation.conservativeTarget, data.currency)}</div>
-                                <div className="mt-1 text-[11px] text-slate-400">合理價 × 0.85</div>
+                                <div className="mt-1 text-[11px] text-slate-400">基準 × 0.85</div>
                               </div>
                               <div className="rounded-xl border border-emerald-100 bg-white p-3">
-                                <div className="text-[11px] font-bold text-slate-500">合理價</div>
+                                <div className="text-[11px] font-bold text-slate-500">基準目標</div>
                                 <div className="mt-1 text-lg font-black text-emerald-700">{formatTargetPrice(valuation.fairTarget, data.currency)}</div>
                                 <div className="mt-1 text-[11px] text-slate-400">空間 {formatValue(valuation.fairUpside, 1)}%</div>
                               </div>
                               <div className="rounded-xl border border-rose-100 bg-white p-3">
-                                <div className="text-[11px] font-bold text-slate-500">樂觀價</div>
+                                <div className="text-[11px] font-bold text-slate-500">FOMO 目標</div>
                                 <div className="mt-1 text-lg font-black text-rose-700">{formatTargetPrice(valuation.optimisticTarget, data.currency)}</div>
                                 <div className="mt-1 text-[11px] text-slate-400">空間 {formatValue(valuation.optimisticUpside, 1)}%</div>
                               </div>
                             </div>
 
                             <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3 text-xs font-semibold text-slate-600">
-                              估值不是預測股價，只是把「EPS × PE」拆成可調假設；如果你只想快速看方向，可以完全不用填。
+                              先看營收、獲利與毛利率；基本面轉弱時，目標價需下修。
                             </div>
                           </div>
                         </div>

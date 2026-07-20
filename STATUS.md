@@ -12,4 +12,5 @@
 - 2026-07-09: Refined box-range detection so strong one-way trend stocks such as 4556 are marked `非箱型：趨勢太強` and no box overlay is drawn.
 - 2026-07-20: Fixed 4566 scenario valuation so a low-base trailing PE above 50x is not paired with forward EPS that jumps over 50%; the automatic fair PE now falls back to 35x while keeping manual override.
 - 2026-07-20: Extended the low-base valuation guard for 2481-style cases: when forward EPS at least doubles and trailing PE is above 35x, scenario valuation now uses the 35x fallback instead of multiplying two growth effects.
+- 2026-07-20: Reframed and shortened scenario valuation UI as 2027/2028 future targets with conservative, base, and FOMO tiers plus a concise fundamentals-first reminder.
 - Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 4556/8383/2301/2449/3413 rangeBox output, and browser smoke test for 4556 non-box UI passed.
