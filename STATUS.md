@@ -10,4 +10,5 @@
 - 2026-07-09: Updated 情境估值 PE/EPS source handling for 上櫃 stocks; 8383 now uses TPEX official PE + official close to infer trailing EPS, then recalculates current implied PE from the latest quote.
 - 2026-07-09: Added 趨勢視覺化 box-range detection; the analysis page now shows 箱型上下緣、目前位置、區間寬度、操作提醒, and overlays box top/bottom on the 200-day chart.
 - 2026-07-09: Refined box-range detection so strong one-way trend stocks such as 4556 are marked `非箱型：趨勢太強` and no box overlay is drawn.
+- 2026-07-20: Fixed 4566 scenario valuation so a low-base trailing PE above 50x is not paired with forward EPS that jumps over 50%; the automatic fair PE now falls back to 35x while keeping manual override.
 - Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 4556/8383/2301/2449/3413 rangeBox output, and browser smoke test for 4556 non-box UI passed.

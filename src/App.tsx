@@ -372,7 +372,14 @@ export default function App() {
     const manualPe = parseInputNumber(valuationInputs.fairPe);
     const autoEps = stock.epsForward ?? stock.trailingEps;
     const scenarioEps = manualEps ?? autoEps;
-    const autoPeTooHigh = stock.trailingPE != null && stock.trailingPE > 100;
+    const forwardGrowthJump = stock.epsForward != null
+      && stock.trailingEps != null
+      && stock.trailingEps > 0
+      && stock.epsForward >= stock.trailingEps * 1.5;
+    const autoPeTooHigh = stock.trailingPE != null && (
+      stock.trailingPE > 100
+      || (forwardGrowthJump && stock.trailingPE > 50)
+    );
     const trailingPeSourceLabel = stock.trailingPESource === 'TWSE'
       ? "TWSE 官方本益比換算"
       : stock.trailingPESource === 'TPEX'
@@ -396,7 +403,9 @@ export default function App() {
     const peSource = manualPe !== null
       ? "手動合理 PE"
       : autoPeTooHigh
-        ? `目前 PE ${stock.trailingPE?.toFixed(1)}x 過高，改用預設 35x`
+        ? forwardGrowthJump && stock.trailingPE != null && stock.trailingPE <= 100
+          ? `目前 PE ${stock.trailingPE.toFixed(1)}x 是低 EPS 基期，避免與高成長 EPS 混用，改用預設 35x`
+          : `目前 PE ${stock.trailingPE?.toFixed(1)}x 過高，改用預設 35x`
         : stock.trailingPE != null
           ? trailingPeSourceLabel
           : "預設 35x";
@@ -1145,7 +1154,7 @@ export default function App() {
                           <div className="space-y-4">
                             <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs leading-5 text-slate-600">
                               <div className="mb-1 font-black text-blue-700">少填一點，先看方向</div>
-                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用 TWSE / 櫃買中心官方本益比換算；若目前 PE 超過 100x、可能受低基期扭曲，先改用 35x，可手動覆寫。</div>
+                              <div>空白 = 自動帶入。EPS 優先用可信的 Yahoo Forward EPS；若資料疑似過舊或偏低，改用近 12 個月 EPS。PE 優先用 TWSE / 櫃買中心官方本益比換算；若目前 PE 超過 100x，或預估 EPS 較近 12 月 EPS 跳升逾 50% 且目前 PE 超過 50x，避免把低基期 PE 與高成長 EPS 混用，先改用 35x，可手動覆寫。</div>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
