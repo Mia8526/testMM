@@ -372,13 +372,17 @@ export default function App() {
     const manualPe = parseInputNumber(valuationInputs.fairPe);
     const autoEps = stock.epsForward ?? stock.trailingEps;
     const scenarioEps = manualEps ?? autoEps;
-    const forwardGrowthJump = stock.epsForward != null
+    const forwardGrowthRatio = stock.epsForward != null
       && stock.trailingEps != null
       && stock.trailingEps > 0
-      && stock.epsForward >= stock.trailingEps * 1.5;
+      ? stock.epsForward / stock.trailingEps
+      : null;
+    const lowBasePeMismatch = stock.trailingPE != null && forwardGrowthRatio != null && (
+      (forwardGrowthRatio >= 1.5 && stock.trailingPE > 50)
+      || (forwardGrowthRatio >= 2 && stock.trailingPE > 35)
+    );
     const autoPeTooHigh = stock.trailingPE != null && (
-      stock.trailingPE > 100
-      || (forwardGrowthJump && stock.trailingPE > 50)
+      stock.trailingPE > 100 || lowBasePeMismatch
     );
     const trailingPeSourceLabel = stock.trailingPESource === 'TWSE'
       ? "TWSE 官方本益比換算"
@@ -403,7 +407,7 @@ export default function App() {
     const peSource = manualPe !== null
       ? "手動合理 PE"
       : autoPeTooHigh
-        ? forwardGrowthJump && stock.trailingPE != null && stock.trailingPE <= 100
+        ? lowBasePeMismatch && stock.trailingPE != null
           ? `目前 PE ${stock.trailingPE.toFixed(1)}x 是低 EPS 基期，避免與高成長 EPS 混用，改用預設 35x`
           : `目前 PE ${stock.trailingPE?.toFixed(1)}x 過高，改用預設 35x`
         : stock.trailingPE != null
