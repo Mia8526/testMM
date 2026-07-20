@@ -15,4 +15,5 @@
 - 2026-07-20: Reframed and shortened scenario valuation UI as 2027/2028 future targets with conservative, base, and FOMO tiers plus a concise fundamentals-first reminder.
 - 2026-07-20: Simplified the Daily Surge panel by removing the entire top statistics-card row while retaining actionable filters and stock lists.
 - 2026-07-20: Reduced Daily Surge to three actionable signal tabs (low-base start, trend strengthening, overheat warning) and hid unclassified stocks.
+- 2026-07-20: Simplified both watch-journal tables to five decision-focused columns and removed duplicated technical details.
 - Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 4556/8383/2301/2449/3413 rangeBox output, and browser smoke test for 4556 non-box UI passed.

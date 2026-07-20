@@ -463,12 +463,10 @@ export default function App() {
 
   const renderWatchlistRisk = (item: WatchlistItem) => {
     if (isSurgeItem(item)) {
-      return (
-        <div className="space-y-1">
-          <div className="text-sm font-bold text-slate-700">5日量 {formatPct(item.vol5)}</div>
-          <div className="text-[11px] text-slate-500">14日量 {formatPct(item.vol14)}</div>
-        </div>
-      );
+      if (item.disposition) return <span className="rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">處置</span>;
+      if (item.attention) return <span className="rounded bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">注意</span>;
+      if (item.surgeMode?.includes("過熱")) return <span className="rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">不追高</span>;
+      return <span className="text-xs font-medium text-slate-400">一般</span>;
     }
 
     return (
@@ -482,26 +480,16 @@ export default function App() {
     if (isSurgeItem(item)) {
       return (
         <div className="space-y-1">
-          <span className="inline-flex rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">每日強勢股</span>
           {item.surgeMode && (
-            <span className="ml-1 inline-flex rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">{item.surgeMode}</span>
+            <span className="inline-flex rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{item.surgeMode}</span>
           )}
-          <div className="text-[11px] text-slate-500">{item.market ?? "-"} · {item.industry ?? "產業未分類"}</div>
+          <div className="text-[11px] font-semibold text-rose-600">今日 {formatPct(item.todayChange)}</div>
         </div>
       );
     }
 
     const ext = parseFloat(item.ma50Extension);
-    return (
-      <>
-        <div className={cn("text-sm font-bold", getExtensionAlert(ext).color)}>
-          {item.ma50Extension}%
-        </div>
-        <div className={cn("text-[10px] font-bold", getExtensionAlert(ext).color)}>
-          {item.extensionText}
-        </div>
-      </>
-    );
+    return <span className={cn("text-xs font-bold", getExtensionAlert(ext).color)}>{item.extensionText}</span>;
   };
 
   const renderWatchlistConditions = (item: WatchlistItem) => {
@@ -738,29 +726,24 @@ export default function App() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">關鍵價/漲幅</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險/量能</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">來源狀態</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">條件摘要</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入價格</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">目前訊號</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {watchlist.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{item.date}</td>
                           <td className="px-6 py-4">
                             <div className="font-bold text-slate-900">{item.shortName}</div>
                             <div className="text-xs text-slate-400">{item.symbol}</div>
+                            <div className="mt-1 text-[10px] text-slate-400">{item.date}</div>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
-                          <td className="px-6 py-4">{renderWatchlistSetup(item)}</td>
-                          <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
                           <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
-                          <td className="px-6 py-4">{renderWatchlistConditions(item)}</td>
+                          <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button 
@@ -1352,27 +1335,24 @@ export default function App() {
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200">
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">日期</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">價格</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">關鍵價/漲幅</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">來源狀態</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">條件摘要</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入價格</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">目前訊號</th>
+                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險</th>
                               <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {watchlist.map((item) => (
                               <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{item.date}</td>
                                 <td className="px-6 py-4">
                                   <div className="font-bold text-slate-900">{item.shortName}</div>
                                   <div className="text-xs text-slate-400">{item.symbol}</div>
+                                  <div className="mt-1 text-[10px] text-slate-400">{item.date}</div>
                                 </td>
                                 <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price <= 100 ? item.price.toFixed(2) : item.price}</td>
-                                <td className="px-6 py-4">{renderWatchlistSetup(item)}</td>
                                 <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
-                                <td className="px-6 py-4">{renderWatchlistConditions(item)}</td>
+                                <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
                                 <td className="px-6 py-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
                                     <button 
