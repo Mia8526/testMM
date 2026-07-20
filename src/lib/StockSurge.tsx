@@ -25,8 +25,8 @@ interface StockRow {
   flagPeriod?: string;
 }
 
-type ViewMode = "quality" | "bottom" | "rebound" | "all";
-type SurgePattern = "底部啟動" | "放量轉強" | "轉強反彈" | null;
+type ViewMode = "bottom" | "trend" | "overheat";
+type SurgePattern = "低檔啟動" | "趨勢轉強" | "過熱警示" | null;
 
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
@@ -35,6 +35,8 @@ const MAX_BOTTOM_C14 = 8;
 const MIN_BOTTOM_VOL5 = 80;
 const MAX_BOTTOM_RANGE10 = 18;
 const MIN_REBOUND_VOL5 = 100;
+const MIN_OVERHEAT_C14 = 20;
+const MIN_OVERHEAT_RANGE10 = 30;
 const CACHE_KEY = "trendpulse_surge_cache_v7";
 const CACHE_VERSION = 7;
 const REFRESH_HOUR = 15;
@@ -488,30 +490,34 @@ function isBottom(s: StockRow): boolean {
   );
 }
 
+function isOverheat(s: StockRow): boolean {
+  return (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    ((s.c14 !== null && s.c14 >= MIN_OVERHEAT_C14) ||
+      (s.range10 !== null && s.range10 >= MIN_OVERHEAT_RANGE10))
+  );
+}
+
+function isTrendStrong(s: StockRow): boolean {
+  return (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    (s.vol5 !== null ? s.vol5 > MIN_REBOUND_VOL5 : false) &&
+    !isBottom(s) &&
+    !isOverheat(s)
+  );
+}
+
 function getSurgePattern(s: StockRow): SurgePattern {
-  if (isBottom(s)) return "底部啟動";
-  if (
-    s.price > MIN_PRICE &&
-    (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.vol5 !== null ? s.vol5 > MIN_BOTTOM_VOL5 : false) &&
-    (s.c14 !== null ? s.c14 < MAX_BOTTOM_C14 : false) &&
-    (s.range10 !== null ? s.range10 > MAX_BOTTOM_RANGE10 : false)
-  ) {
-    return "轉強反彈";
-  }
-  if (
-    s.price > MIN_PRICE &&
-    (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.vol5 !== null ? s.vol5 > MIN_REBOUND_VOL5 : false)
-  ) {
-    return "放量轉強";
-  }
+  if (isBottom(s)) return "低檔啟動";
+  if (isOverheat(s)) return "過熱警示";
+  if (isTrendStrong(s)) return "趨勢轉強";
   return null;
 }
 
 function isVolumeRebound(s: StockRow): boolean {
-  const pattern = getSurgePattern(s);
-  return pattern === "放量轉強" || pattern === "轉強反彈";
+  return isTrendStrong(s);
 }
 
 function isQuality(s: StockRow): boolean {
@@ -574,17 +580,17 @@ function PatternBadge({ pattern }: { pattern: SurgePattern }) {
     color: string;
     border: string;
   }> = {
-    "底部啟動": {
+    "低檔啟動": {
       bg: "rgba(245,158,11,0.15)",
       color: "var(--c-amber)",
       border: "rgba(245,158,11,0.28)",
     },
-    "放量轉強": {
+    "趨勢轉強": {
       bg: "rgba(96,165,250,0.14)",
       color: "var(--c-blue)",
       border: "rgba(96,165,250,0.28)",
     },
-    "轉強反彈": {
+    "過熱警示": {
       bg: "rgba(240,92,92,0.12)",
       color: "var(--c-up)",
       border: "rgba(240,92,92,0.26)",
@@ -685,7 +691,7 @@ export default function StockSurge({ onAddToWatchlist }: {
   const [loadNote, setLoadNote] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("rankScore");
   const [sortAsc, setSortAsc] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("quality");
+  const [viewMode, setViewMode] = useState<ViewMode>("bottom");
   const [dataDate, setDataDate] = useState("");
   const [cacheSavedAt, setCacheSavedAt] = useState("");
   const [usingCache, setUsingCache] = useState(false);
@@ -880,7 +886,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       vol5: s.vol5,
       vol14: s.vol14,
       amount: s.amount,
-      surgeMode: getSurgePattern(s) ?? (viewMode === "quality" ? "精選" : viewMode === "all" ? "全部" : "放量轉強"),
+      surgeMode: getSurgePattern(s) ?? "符合訊號",
       isBottomSignal: isBottom(s),
       attention: s.attention,
       disposition: s.disposition,
@@ -905,30 +911,26 @@ export default function StockSurge({ onAddToWatchlist }: {
     }
   };
 
-  const qualityRows = stocks
-    .filter(isQuality)
-    .sort((a, b) => qualityScore(b) - qualityScore(a))
-    .slice(0, LIST_LIMIT);
   const bottomRows = stocks
     .filter(isBottom)
     .sort((a, b) => bottomScore(b) - bottomScore(a))
     .slice(0, LIST_LIMIT);
-  const reboundRows = stocks
-    .filter(isVolumeRebound)
+  const trendRows = stocks
+    .filter(isTrendStrong)
     .sort((a, b) => reboundScore(b) - reboundScore(a))
     .slice(0, LIST_LIMIT);
-  const modeRows =
-    viewMode === "quality" ? qualityRows :
-    viewMode === "bottom" ? bottomRows :
-    viewMode === "rebound" ? reboundRows :
-    stocks;
+  const overheatRows = stocks
+    .filter(isOverheat)
+    .sort((a, b) => (b.c14 ?? 0) - (a.c14 ?? 0))
+    .slice(0, LIST_LIMIT);
+  const modeRows = viewMode === "bottom" ? bottomRows : viewMode === "trend" ? trendRows : overheatRows;
 
   const sorted = [...modeRows].sort((a, b) => {
     const va = sortKey === "rankScore"
-      ? (viewMode === "bottom" ? bottomScore(a) : viewMode === "rebound" ? reboundScore(a) : qualityScore(a))
+      ? (viewMode === "bottom" ? bottomScore(a) : viewMode === "trend" ? reboundScore(a) : (a.c14 ?? 0))
       : a[sortKey] as number | string | null;
     const vb = sortKey === "rankScore"
-      ? (viewMode === "bottom" ? bottomScore(b) : viewMode === "rebound" ? reboundScore(b) : qualityScore(b))
+      ? (viewMode === "bottom" ? bottomScore(b) : viewMode === "trend" ? reboundScore(b) : (b.c14 ?? 0))
       : b[sortKey] as number | string | null;
     if (va === null && vb === null) return 0;
     if (va === null) return 1;
@@ -952,11 +954,9 @@ export default function StockSurge({ onAddToWatchlist }: {
   const selectedIndustryAmount = selectedIndustryRows.reduce((sum, s) => sum + (s.amount ?? 0), 0);
   const selectedIndustryBottomCount = selectedIndustryRows.filter(isBottom).length;
   const selectedIndustryReboundCount = selectedIndustryRows.filter(isVolumeRebound).length;
-  const qualityCount = stocks.filter(isQuality).length;
   const bottomCount = stocks.filter(isBottom).length;
-  const reboundCount = stocks.filter(isVolumeRebound).length;
-  const attentionCount = stocks.filter((s) => s.attention).length;
-  const dispositionCount = stocks.filter((s) => s.disposition).length;
+  const trendCount = stocks.filter(isTrendStrong).length;
+  const overheatCount = stocks.filter(isOverheat).length;
   const isRefreshing =
     status === "loading" ||
     loadNote.includes("連線") ||
@@ -1032,28 +1032,6 @@ export default function StockSurge({ onAddToWatchlist }: {
         </button>
       </div>
 
-      {/* ── 指標卡 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 24 }}>
-        {[
-          { label: "漲幅>5% 股數", value: stocks.length || "—", color: "var(--c-up)" },
-          { label: "精選候選", value: qualityCount || "—", color: "var(--c-blue)" },
-          { label: "上市", value: stocks.filter(s => s.market === "上市").length || "—", color: "var(--c-text)" },
-          { label: "上櫃", value: stocks.filter(s => s.market === "上櫃").length || "—", color: "var(--c-text)" },
-          { label: "🔥 底部啟動", value: bottomCount || "—", color: "var(--c-amber)" },
-          { label: "放量/反彈", value: reboundCount || "—", color: "var(--c-blue)" },
-          { label: "注意/處置", value: attentionCount + dispositionCount || "—", color: "var(--c-amber)" },
-          { label: "涵蓋產業", value: indEntries.length || "—", color: "var(--c-dn)" },
-        ].map((m) => (
-          <div key={m.label} style={{
-            background: "var(--c-surface)", border: "1px solid var(--c-border)",
-            borderRadius: 12, padding: "14px 16px",
-          }}>
-            <div style={{ fontSize: 12, color: "var(--c-muted)", marginBottom: 6 }}>{m.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 600, color: m.color }}>{m.value}</div>
-          </div>
-        ))}
-      </div>
-
       {/* ── 載入中 ── */}
       {status === "loading" && stocks.length === 0 && (
         <div style={{
@@ -1106,10 +1084,9 @@ export default function StockSurge({ onAddToWatchlist }: {
               background: "var(--c-surface)", border: "1px solid var(--c-border)",
             }}>
               {[
-                { key: "quality" as const, label: "精選 Top 30", count: Math.min(qualityCount, LIST_LIMIT) },
-                { key: "bottom" as const, label: "底部啟動", count: Math.min(bottomCount, LIST_LIMIT) },
-                { key: "rebound" as const, label: "轉強/反彈", count: Math.min(reboundCount, LIST_LIMIT) },
-                { key: "all" as const, label: "全部", count: stocks.length },
+                { key: "bottom" as const, label: "低檔啟動", count: Math.min(bottomCount, LIST_LIMIT) },
+                { key: "trend" as const, label: "趨勢轉強", count: Math.min(trendCount, LIST_LIMIT) },
+                { key: "overheat" as const, label: "過熱警示", count: Math.min(overheatCount, LIST_LIMIT) },
               ].map((item) => {
                 const active = viewMode === item.key;
                 return (
@@ -1136,17 +1113,16 @@ export default function StockSurge({ onAddToWatchlist }: {
               })}
             </div>
             <div style={{ fontSize: 12, color: "var(--c-muted)" }}>
-              顯示 {sorted.length} / {stocks.length} 檔
+              符合 {sorted.length} 檔
             </div>
           </div>
 
           {/* 圖例說明 */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
-              {viewMode === "quality" && "精選：股價 >10、成交金額 >5,000萬，依成交金額＋量能＋漲幅排序"}
-              {viewMode === "bottom" && "底部啟動：當日漲幅 >5%、14日漲幅 <8%、5日量能 >80%、10日震幅 ≤18%，抓剛離開低檔整理的第一段"}
-              {viewMode === "rebound" && "轉強/反彈：量能明顯放大但不一定是低檔；適合先觀察續航，等回測不破或隔日續強再處理"}
-              {viewMode === "all" && "全部：當日漲幅超過 5% 個股"}
+              {viewMode === "bottom" && "低檔啟動：低基期整理後放量，優先觀察。"}
+              {viewMode === "trend" && "趨勢轉強：量能放大但尚未過熱，等續強或回測不破。"}
+              {viewMode === "overheat" && "過熱警示：14日漲幅 ≥20% 或10日震幅 ≥30%，不追高。"}
             </div>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
@@ -1154,14 +1130,14 @@ export default function StockSurge({ onAddToWatchlist }: {
               background: "rgba(245,158,11,0.12)", color: "var(--c-amber)",
             }}>
               <Flame size={11} />
-              底部啟動：當日漲幅 &gt;5%、14日漲幅 &lt;8%、5日量能 &gt;80%、10日震幅 ≤18%
+              只顯示符合訊號的股票
             </span>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
               fontSize: 11, padding: "2px 8px", borderRadius: 5,
               background: "rgba(240,92,92,0.10)", color: "var(--c-up)",
             }}>
-              精選清單已排除注意/處置股
+              注意／處置股會保留警示標籤
             </span>
             <span style={{ fontSize: 11, color: "var(--c-muted)" }}>點欄位標題可排序</span>
           </div>
@@ -1440,8 +1416,8 @@ export default function StockSurge({ onAddToWatchlist }: {
             * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:45 更新。<br />
             * 頁面會先使用瀏覽器暫存；平日 15:45 後自動更新，按「重新整理」可立即強制重抓。<br />
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
-            * 底部啟動條件：當日漲幅 &gt;5%、14日漲幅 &lt;8%、5日量能變化 &gt;80%、10日震幅 ≤18%（抓低檔整理後第一段）。<br />
-            * 轉強/反彈：量能放大但不一定在低檔，適合先放觀察名單，等回測不破或隔日續強再評估。<br />
+            * 低檔啟動：14日漲幅 &lt;8%、5日量能 &gt;80%、10日震幅 ≤18%。<br />
+            * 趨勢轉強：量能放大且尚未過熱；過熱警示為14日漲幅 ≥20%或10日震幅 ≥30%。<br />
             * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>
