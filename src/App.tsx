@@ -817,19 +817,8 @@ export default function App() {
                   {/* Header Card */}
                   <div className="sleek-card flex flex-col md:flex-row items-end justify-between gap-6">
                     <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                        <span className="text-[14px] text-[#64748b] font-medium uppercase tracking-wider">{data.symbol}</span>
-                        <span className={cn(
-                          "px-2 py-0.5 text-[11px] font-bold rounded uppercase",
-                          data.marketType === '美股' ? "bg-blue-50 text-blue-600" : 
-                          data.marketType === '上市' ? "bg-blue-100 text-blue-700" :
-                          "bg-purple-100 text-purple-700"
-                        )}>{data.marketType}</span>
-                      </div>
-                      <div className="flex items-baseline gap-3">
-                        <h2 className="text-3xl font-extrabold text-[#0f172a]">{data.shortName}</h2>
-                        <span className="text-lg font-semibold text-slate-400">分析報告</span>
-                      </div>
+                      <div className="text-[14px] font-medium uppercase tracking-wider text-[#64748b]">{data.symbol}</div>
+                      <h2 className="text-3xl font-extrabold text-[#0f172a]">{data.shortName}</h2>
                       <div className="flex items-center gap-2 mt-2">
                         <Info className={cn("w-4 h-4", data.isTemplateMet ? "text-emerald-500" : "text-amber-500")} />
                         <span className={cn("text-sm font-medium", data.isTemplateMet ? "text-emerald-600" : "text-amber-600")}>
@@ -837,7 +826,7 @@ export default function App() {
                         </span>
                       </div>
                     </div>
-                      <div className="text-right space-y-2">
+                      <div className="text-right space-y-3">
                         <div className="flex items-center justify-end gap-2">
                           <button 
                             onClick={() => addToWatchlist()}
@@ -846,223 +835,64 @@ export default function App() {
                             <BookmarkPlus className="w-4 h-4" />
                             觀察
                           </button>
-                          {parseFloat(data.ma50Extension) > 25 && (
-                            <div className={cn(
-                              "px-3 py-1 text-[12px] font-bold rounded-full border",
-                              data.isMomentumStock
-                                ? "bg-amber-50 text-amber-600 border-amber-100"
-                                : "bg-rose-50 text-rose-600 border-rose-100"
-                            )}>
-                              {data.isMomentumStock ? "⚡ 動能" : "🚨 過熱"}
-                            </div>
-                          )}
                         </div>
                         <div className="text-3xl font-bold text-[#0f172a]">
-                          <span className="text-xs text-slate-400 font-medium block mb-1">收盤價 (Last Close)</span>
-                          <div className="flex items-center gap-2">
-                            {data.currency} {data.currentPrice?.toFixed(2) ?? '-'}
-                            {data.baseType !== 'None' && (
-                              <span className={cn(
-                                "text-[12px] px-2 py-1 rounded-md font-bold whitespace-nowrap",
-                                data.baseType === 'Major' ? "bg-purple-100 text-purple-700 border border-purple-200" : "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                              )}>
-                                [ {data.baseLabel} {data.baseDays}天 ]
-                              </span>
-                            )}
-                          </div>
-                          
-                          {/* EPS & 本益比區塊 */}
-                          {(data.trailingPE != null || data.epsForward != null || data.trailingEps != null || data.recentEpsGrowth != null) && (
-                            <div className="mt-2 flex flex-wrap gap-1.5 justify-end">
-
-                              {/* 本益比 */}
-                              {data.trailingPE != null && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm bg-[#f8fafc] text-[#334155] border-[#e2e8f0]">
-                                  本益比 {data.trailingPE.toFixed(1)}x
-                                </span>
-                              )}
-
-                              {/* 近四季實際 EPS 成長率 */}
-                              {data.recentEpsGrowth != null && Math.abs(parseFloat(data.recentEpsGrowth)) <= 500 && (
-                                <span className={cn(
-                                  "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
-                                  parseFloat(data.recentEpsGrowth) >= 20
-                                    ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
-                                    : parseFloat(data.recentEpsGrowth) < 0
-                                    ? "bg-[#fef2f2] text-[#dc2626] border-[#fca5a5]"
-                                    : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
-                                )}>
-                                  實際成長 {parseFloat(data.recentEpsGrowth) >= 0 ? '+' : ''}{data.recentEpsGrowth}%
-                                </span>
-                              )}
-
-                              {/* EPS：優先顯示可信的 Forward EPS；否則顯示近 12 個月 EPS */}
-                              {(() => {
-                                const epsValue = data.epsForward ?? data.trailingEps;
-                                if (epsValue == null) return null;
-                                const isForward = data.epsForward != null;
-                                return (
-                                  <span className={cn(
-                                    "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border shadow-sm",
-                                    isForward && data.epsGrowth && parseFloat(data.epsGrowth) >= 20
-                                      ? "bg-[#ecfdf5] text-[#059669] border-[#10b981] ring-1 ring-[#10b981]/10"
-                                      : "bg-[#f8fafc] text-[#64748b] border-[#e2e8f0]"
-                                  )}>
-                                    {isForward ? "預估EPS" : "近12月EPS"} {epsValue.toFixed(2)}
-                                    {isForward && data.epsGrowth &&
-                                      parseFloat(data.epsGrowth) >= 20 &&
-                                      parseFloat(data.epsGrowth) <= 500 && (
-                                      <span className="ml-1 opacity-90">(+{data.epsGrowth}%)</span>
-                                    )}
-                                  </span>
-                                );
-                              })()}
-
-                            </div>
-                          )}
+                          <span className="mb-1 block text-xs font-medium text-slate-400">收盤價</span>
+                          {data.currency} {data.currentPrice?.toFixed(2) ?? '-'}
                         </div>
                       </div>
                   </div>
 
-                  {/* Grid Layout - 3 Columns */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* MA Card */}
-                    <div className="sleek-card">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">移動平均線 (MA)</span>
-                        {data.isVolumeContracted && (
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded border border-blue-100 animate-pulse">
-                            量縮中
-                          </span>
-                        )}
+                  {/* MA、Pivot 與箱型合併，避免同一價格重複出現 */}
+                  <div className="sleek-card">
+                    <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">關鍵位置</h3>
+                        <p className="mt-1 text-xs text-slate-500">先判斷能不能追，再看突破與防守位置。</p>
                       </div>
-                      <div className="space-y-3">
-                        <IndicatorRow label="50 MA" value={`${data.currency} ${data.ma50?.toFixed(2) || '-'}`} />
-                        <IndicatorRow label="150 MA" value={`${data.currency} ${data.ma150?.toFixed(2) || '-'}`} />
-                        <IndicatorRow label="200 MA" value={`${data.currency} ${data.ma200?.toFixed(2) || '-'}`} />
-                        <div className="pt-3 border-t border-slate-50">
-                          <div className="flex justify-between items-center">
-                            <span className="text-[13px] text-[#64748b] font-medium">50MA 乖離率</span>
-                            <span className={cn("text-[15px] font-bold", getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
-                              {data.ma50Extension}%
-                            </span>
-                          </div>
-                          <div className={cn(
-                            "mt-2 p-2 rounded-lg border text-center transition-all duration-500",
-                            getExtensionAlert(parseFloat(data.ma50Extension)).bg
-                          )}>
-                            <p className={cn("text-[11px] font-bold", getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
-                              {getExtensionAlert(parseFloat(data.ma50Extension)).text}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 樞紐雷達 - 三行核心資訊 (Static Anchor) */}
-                    <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 lg:col-span-2 shadow-sm">
-                      <h3 className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider mb-6">🎯 樞紐雷達核心資訊</h3>
-                      <div className="space-y-5 sm:space-y-6 max-w-lg mx-auto">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
-                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">突破買點</span>
-                          <span className="text-lg sm:text-xl font-black text-blue-600">
-                            NT$ {data.pivotPrice > 0 ? data.pivotPrice.toFixed(2) : '-'}
-                          </span>
-                        </div>
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0 py-4 border-y border-slate-50">
-                          <span className="text-sm text-slate-500 font-medium whitespace-nowrap">最佳進場區</span>
-                          {data.pivotPrice <= 0 ? (
-                            <span className="text-sm px-3 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg border border-amber-200">
-                              尚未形成明確平台
-                            </span>
-                          ) : !data.isExtended ? (
-                            <span className="text-lg sm:text-xl font-black text-emerald-600">
-                              NT$ {data.pivotPrice.toFixed(2)} ~ NT$ {data.buyZoneMax.toFixed(2)}
-                            </span>
-                          ) : data.isMomentumStock ? (
-                            <span className="text-sm px-3 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg border border-amber-200">
-                              ⚡ 動能追蹤 — 需搭配籌碼確認
-                            </span>
-                          ) : (
-                            <span className="text-sm px-3 py-1 bg-slate-50 text-slate-500 font-bold rounded-lg border border-slate-200">
-                              ⏳ 等待回測 MA50
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
-                           <span className="text-sm text-slate-500 font-bold whitespace-nowrap">參考停損區 (-8%)</span>
-                           {data.pivotPrice <= 0 ? (
-                             <span className="text-sm text-slate-400 font-medium">— 等平台形成</span>
-                           ) : data.isExtended && !data.isMomentumStock ? (
-                             <span className="text-sm text-slate-400 font-medium">— 等回撤後重新評估</span>
-                           ) : (
-                             <span className="text-lg sm:text-xl font-black text-red-700">
-                               NT$ {data.suggestedStopLoss.toFixed(2)} ~ NT$ {(data.buyZoneMax * 0.92).toFixed(2)}
-                             </span>
-                           )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 箱型區間提醒 */}
-                  {data.rangeBox && (
-                    <div className={cn(
-                      "sleek-card border-l-4",
-                      data.rangeBox.isBoxRange ? "border-l-amber-400" : "border-l-slate-300"
-                    )}>
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div>
-                          <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">📦 箱型區間提醒</h3>
-                          <p className="mt-1 text-xs leading-5 text-slate-500">
-                            {data.rangeBox.isBoxRange
-                              ? `用近 ${data.rangeBox.lookbackDays} 個交易日估算上下緣，避免把箱頂誤看成突破買點。`
-                              : `近 ${data.rangeBox.lookbackDays} 個交易日不符合箱型條件，避免硬套箱頂/箱底模型。`}
-                          </p>
-                        </div>
-                        <span className={cn(
-                          "inline-flex w-fit rounded-full px-3 py-1 text-xs font-black",
-                          data.rangeBox.status.includes("上緣") || data.rangeBox.status.includes("測試")
-                            ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : data.rangeBox.status.includes("下緣")
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : data.rangeBox.isBoxRange
-                                ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                : "bg-slate-50 text-slate-500 border border-slate-200"
-                        )}>
-                          {data.rangeBox.status}
+                      <div className="flex flex-wrap gap-2">
+                        {data.isVolumeContracted && <span className="rounded border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-600">量縮中</span>}
+                        <span className={cn("rounded border px-2 py-1 text-[11px] font-bold", getExtensionAlert(parseFloat(data.ma50Extension)).bg, getExtensionAlert(parseFloat(data.ma50Extension)).color)}>
+                          50MA乖離 {data.ma50Extension}%
                         </span>
                       </div>
+                    </div>
 
-                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                          <div className="text-[11px] font-bold text-slate-500">{data.rangeBox.isBoxRange ? "箱型下緣" : "參考低位"}</div>
+                    <div className={cn("mt-4 grid gap-3", data.rangeBox?.isBoxRange ? "grid-cols-2 md:grid-cols-5" : "grid-cols-2 md:grid-cols-3")}>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                        <div className="text-[11px] font-bold text-slate-500">突破價</div>
+                        <div className="mt-1 text-lg font-black text-blue-700">{data.pivotPrice > 0 ? formatTargetPrice(data.pivotPrice, data.currency) : "—"}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                        <div className="text-[11px] font-bold text-slate-500">進場上限</div>
+                        <div className="mt-1 text-lg font-black text-emerald-700">{data.pivotPrice > 0 && !data.isExtended ? formatTargetPrice(data.buyZoneMax, data.currency) : "—"}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                        <div className="text-[11px] font-bold text-slate-500">停損參考</div>
+                        <div className="mt-1 text-lg font-black text-rose-700">{data.pivotPrice > 0 && (!data.isExtended || data.isMomentumStock) ? formatTargetPrice(data.suggestedStopLoss, data.currency) : "—"}</div>
+                      </div>
+                      {data.rangeBox?.isBoxRange && <>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                          <div className="text-[11px] font-bold text-slate-500">箱底</div>
                           <div className="mt-1 text-lg font-black text-emerald-700">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
                         </div>
-                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                          <div className="text-[11px] font-bold text-slate-500">{data.rangeBox.isBoxRange ? "箱型上緣" : "參考高位"}</div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                          <div className="text-[11px] font-bold text-slate-500">箱頂</div>
                           <div className="mt-1 text-lg font-black text-amber-700">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
                         </div>
-                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                          <div className="text-[11px] font-bold text-slate-500">目前位置</div>
-                          <div className="mt-1 text-lg font-black text-slate-900">{formatValue(data.rangeBox.currentPositionPct, 0)}%</div>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                          <div className="text-[11px] font-bold text-slate-500">區間寬度</div>
-                          <div className="mt-1 text-lg font-black text-slate-900">{formatValue(data.rangeBox.widthPct, 1)}%</div>
-                        </div>
-                      </div>
-
-                      <div className={cn(
-                        "mt-4 rounded-xl border p-3 text-sm font-semibold leading-6",
-                        data.rangeBox.isBoxRange
-                          ? "border-amber-100 bg-amber-50/60 text-amber-800"
-                          : "border-slate-200 bg-slate-50 text-slate-600"
-                      )}>
-                        {data.rangeBox.action}
-                      </div>
+                      </>}
                     </div>
-                  )}
+
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">
+                      {data.isExtended && !data.isMomentumStock
+                        ? "目前乖離偏高，先等回測，不追價。"
+                        : data.rangeBox?.isBoxRange
+                          ? data.rangeBox.action
+                          : data.pivotPrice > 0
+                            ? "觀察突破是否站穩；未突破前不預設已轉強。"
+                            : "尚未形成明確平台，先觀察。"}
+                    </div>
+                  </div>
 
                   {/* 2027 情境估值 */}
                   {(() => {
@@ -1160,8 +990,6 @@ export default function App() {
                             </div>
 
                             <div className="flex flex-wrap gap-2">
-                              {(data.epsForward ?? data.trailingEps) != null && quickSet("帶入 EPS", () => updateValuationInput("eps2027", (data.epsForward ?? data.trailingEps)?.toFixed(2) ?? ''))}
-                              {data.trailingPE != null && quickSet("帶入目前 PE", () => updateValuationInput("fairPe", data.trailingPE?.toFixed(1) ?? ''))}
                               {quickSet("清空改自動", () => setValuationInputs({ eps2027: '', fairPe: '' }))}
                             </div>
                           </div>
@@ -1172,7 +1000,7 @@ export default function App() {
                               <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-500">非目前合理價</span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                            <div className="grid grid-cols-3 gap-3 text-sm">
                               <div>
                                 <div className="text-[11px] text-slate-500">採用 EPS</div>
                                 <div className="font-black text-blue-700">{formatValue(valuation.scenarioEps)}</div>
@@ -1180,10 +1008,6 @@ export default function App() {
                               <div>
                                 <div className="text-[11px] text-slate-500">採用 PE</div>
                                 <div className="font-black text-slate-900">{formatValue(valuation.referencePe, 1)}x</div>
-                              </div>
-                              <div>
-                                <div className="text-[11px] text-slate-500">目前股價</div>
-                                <div className="font-black text-slate-900">{formatTargetPrice(data.currentPrice, data.currency)}</div>
                               </div>
                               <div>
                                 <div className="text-[11px] text-slate-500">2027E PE</div>
@@ -1318,113 +1142,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Watchlist Table Section - Always visible in analysis if records exist */}
-                  {watchlist.length > 0 && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-bold text-[#0f172a]">觀察日誌儀表板</h3>
-                        <button 
-                          onClick={exportToCSV}
-                          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                        >
-                          <Download className="w-4 h-4" />
-                          匯出為 CSV 檔案
-                        </button>
-                      </div>
-                      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-200">
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入價格</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">目前訊號</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險</th>
-                              <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {watchlist.map((item) => (
-                              <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="px-6 py-4">
-                                  <div className="font-bold text-slate-900">{item.shortName}</div>
-                                  <div className="text-xs text-slate-400">{item.symbol}</div>
-                                  <div className="mt-1 text-[10px] text-slate-400">{item.date}</div>
-                                </td>
-                                <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price <= 100 ? item.price.toFixed(2) : item.price}</td>
-                                <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
-                                <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
-                                <td className="px-6 py-4 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button 
-                                      onClick={() => reAnalyze(item.symbol)}
-                                      className="p-2 text-blue-400 hover:text-blue-600 transition-colors"
-                                      title="重新查詢"
-                                    >
-                                      <Search className="w-4 h-4" />
-                                    </button>
-                                    <button 
-                                      onClick={() => removeFromWatchlist(item.id)}
-                                      className="p-2 text-slate-300 hover:text-rose-500 transition-colors"
-                                      title="刪除"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
                 </motion.div>
               )}
             </motion.div>
           )}
         </AnimatePresence>
       </main>
-    </div>
-  );
-}
-
-function IndicatorRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex justify-between items-center pb-2 border-bottom border-[#f1f5f9]">
-      <span className="text-[14px] text-[#475569] font-medium">{label}</span>
-      <span className="text-[16px] font-bold text-[#0f172a]">{value}</span>
-    </div>
-  );
-}
-
-function CheckItem({ label, met }: { label: string; met: boolean }) {
-  return (
-    <div className="flex justify-between items-center pb-2 border-bottom border-[#f1f5f9]">
-      <span className="text-[14px] text-[#475569] font-medium">{label}</span>
-      <span className={cn("text-[14px] font-bold", met ? "text-[#10b981]" : "text-slate-300")}>
-        {met ? '✓' : '✕'}
-      </span>
-    </div>
-  );
-}
-
-
-function ConditionItem({ label, met, detail }: { label: string; met: boolean; detail: string }) {
-  return (
-    <div className="flex gap-3">
-      <div className="mt-1">
-        {met ? (
-          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-        ) : (
-          <XCircle className="w-5 h-5 text-slate-300" />
-        )}
-      </div>
-      <div>
-        <p className={cn("text-sm font-bold", met ? "text-slate-900" : "text-slate-500")}>
-          {label}
-        </p>
-        <p className="text-xs text-slate-400 mt-0.5">{detail}</p>
-      </div>
     </div>
   );
 }
