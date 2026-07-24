@@ -812,10 +812,10 @@ export default function App() {
                   key="content"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="space-y-6"
+                  className="flex flex-col gap-6"
                 >
                   {/* Header Card */}
-                  <div className="sleek-card flex flex-col md:flex-row items-end justify-between gap-6">
+                  <div className="sleek-card order-1 flex flex-col md:flex-row items-end justify-between gap-6">
                     <div className="space-y-1">
                       <div className="text-[14px] font-medium uppercase tracking-wider text-[#64748b]">{data.symbol}</div>
                       <h2 className="text-3xl font-extrabold text-[#0f172a]">{data.shortName}</h2>
@@ -844,7 +844,7 @@ export default function App() {
                   </div>
 
                   {/* MA、Pivot 與箱型合併，避免同一價格重複出現 */}
-                  <div className="sleek-card">
+                  <div className="sleek-card order-2">
                     <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
                       <div>
                         <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">關鍵位置</h3>
@@ -943,7 +943,7 @@ export default function App() {
                     );
 
                     return (
-                      <div className="sleek-card">
+                      <div className="sleek-card order-4">
                         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-start md:justify-between">
                           <div>
                             <h3 className="text-[13px] font-bold uppercase tracking-wider text-[#64748b]">2027／2028 目標價情境</h3>
@@ -1043,7 +1043,7 @@ export default function App() {
                   })()}
 
                   {/* Chart Card */}
-                  <div className="sleek-card">
+                  <div className="sleek-card order-3">
                     <div className="flex items-center justify-between mb-6">
                       <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">趨勢視覺化 (近 200 日)</span>
                       <div className="flex gap-4 text-[10px] font-bold uppercase tracking-tight">
@@ -1144,7 +1144,7 @@ export default function App() {
 
                   {/* 保留在分析頁底部，方便直接切換觀察中的股票 */}
                   {watchlist.length > 0 && (
-                    <div className="space-y-4">
+                    <div className="order-5 space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="text-lg font-bold text-[#0f172a]">觀察日誌</h3>
