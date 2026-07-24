@@ -1142,6 +1142,60 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* 保留在分析頁底部，方便直接切換觀察中的股票 */}
+                  {watchlist.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-lg font-bold text-[#0f172a]">觀察日誌</h3>
+                          <p className="mt-1 text-xs text-slate-500">點放大鏡可直接切換並重新分析股票。</p>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('watchlist')}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          開啟完整日誌
+                        </button>
+                      </div>
+                      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <table className="w-full border-collapse text-left">
+                          <thead>
+                            <tr className="border-b border-slate-200 bg-slate-50">
+                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">股票</th>
+                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">加入價格</th>
+                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">目前訊號</th>
+                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">風險</th>
+                              <th className="px-6 py-4 text-right text-[12px] font-bold uppercase tracking-wider text-slate-500">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {watchlist.map((item) => (
+                              <tr key={item.id} className={cn("transition-colors hover:bg-slate-50", item.symbol === data.symbol && "bg-blue-50/60")}>
+                                <td className="px-6 py-4">
+                                  <div className="font-bold text-slate-900">{item.shortName}</div>
+                                  <div className="text-xs text-slate-400">{item.symbol}</div>
+                                </td>
+                                <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
+                                <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
+                                <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button onClick={() => reAnalyze(item.symbol)} className="p-2 text-blue-400 transition-colors hover:text-blue-600" title={`切換並分析 ${item.shortName}`}>
+                                      <Search className="h-4 w-4" />
+                                    </button>
+                                    <button onClick={() => removeFromWatchlist(item.id)} className="p-2 text-slate-300 transition-colors hover:text-rose-500" title="刪除">
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                 </motion.div>
               )}
             </motion.div>
