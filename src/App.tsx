@@ -39,6 +39,8 @@ function cn(...inputs: ClassValue[]) {
 
 interface RangeBox {
   isBoxRange: boolean;
+  breakdown: boolean;
+  quality: 'standard' | 'wide' | null;
   lookbackDays: number;
   upper: number | null;
   lower: number | null;

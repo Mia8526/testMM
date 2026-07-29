@@ -30,3 +30,17 @@ test('zero-volume bars are excluded from lookback count', () => {
   const result = detectRangeBox(bars(188, 200, 178, 165), 165);
   assert.equal(result.lookbackDays, 35);
 });
+
+test('price below lower edge but not confirmed is marked as breakdown watch', () => {
+  const result = detectRangeBox(bars(188, 200, 178, 176), 176);
+  assert.equal(result.breakdown, false);
+  assert.equal(result.status, '箱底失守觀察');
+  assert.match(result.action, /尚未確認跌破/);
+});
+
+test('wide consolidation is labelled separately from a standard box', () => {
+  const result = detectRangeBox(bars(330, 375, 280, 300), 300);
+  assert.equal(result.isBoxRange, true);
+  assert.equal(result.quality, 'wide');
+  assert.match(result.status, /寬幅整理/);
+});
