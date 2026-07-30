@@ -729,6 +729,7 @@ export default function App() {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
+                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入日期</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入價格</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">目前訊號</th>
                         <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險</th>
@@ -741,8 +742,8 @@ export default function App() {
                           <td className="px-6 py-4">
                             <div className="font-bold text-slate-900">{item.shortName}</div>
                             <div className="text-xs text-slate-400">{item.symbol}</div>
-                            <div className="mt-1 text-[10px] text-slate-400">{item.date}</div>
                           </td>
+                          <td className="px-6 py-4 text-xs font-medium text-slate-500">{item.date}</td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
                           <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
                           <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
@@ -1164,6 +1165,7 @@ export default function App() {
                           <thead>
                             <tr className="border-b border-slate-200 bg-slate-50">
                               <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">股票</th>
+                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">加入日期</th>
                               <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">加入價格</th>
                               <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">目前訊號</th>
                               <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">風險</th>
@@ -1177,6 +1179,7 @@ export default function App() {
                                   <div className="font-bold text-slate-900">{item.shortName}</div>
                                   <div className="text-xs text-slate-400">{item.symbol}</div>
                                 </td>
+                                <td className="px-6 py-4 text-xs font-medium text-slate-500">{item.date}</td>
                                 <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
                                 <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
                                 <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
