@@ -1047,17 +1047,22 @@ export default function App() {
 
                   {/* Chart Card */}
                   <div className="sleek-card order-3">
-                    <div className="flex items-center justify-between mb-6">
-                      <span className="text-[12px] font-semibold text-[#64748b] uppercase tracking-wider">趨勢視覺化 (近 200 日)</span>
-                      <div className="flex gap-4 text-[10px] font-bold uppercase tracking-tight">
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-[#2563eb]"></span> 價格</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-amber-500"></span> MA50</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-emerald-500"></span> MA150</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 bg-rose-500"></span> MA200</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-slate-400"></span> 52W HIGH</div>
-                        <div className="flex items-center gap-1.5"><span className="w-2.5 h-0.5 border-t border-dashed border-sky-300"></span> VCP 高點</div>
+                    <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <span className="text-[12px] font-semibold uppercase tracking-wider text-[#64748b]">趨勢視覺化（近200日）</span>
+                        <p className="mt-1 text-[11px] text-slate-400">粗實線看股價；均線只判斷趨勢；水平線看突破與箱型。</p>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 text-[10px] font-bold uppercase tracking-tight">
+                        <div className="flex items-center gap-1.5"><span className="h-1 w-4 rounded bg-[#0f4c81]"></span> 股價</div>
+                        <div className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-[#f59e0b]"></span> MA50</div>
+                        <div className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#14b8a6]"></span> MA150</div>
+                        <div className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dotted border-[#7c3aed]"></span> MA200</div>
+                        <div className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#dc2626]"></span> Pivot</div>
+                        {data.vcpHigh && !data.isExtended && (data.pivotPrice <= 0 || Math.abs(data.vcpHigh - data.pivotPrice) / data.pivotPrice > 0.015) && (
+                          <div className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dotted border-[#0891b2]"></span> VCP</div>
+                        )}
                         {data.rangeBox?.isBoxRange && data.rangeBox?.upper != null && data.rangeBox?.lower != null && (
-                          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2 rounded-sm bg-amber-200/70 border border-amber-300"></span> 箱型</div>
+                          <div className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm border border-slate-400 bg-slate-200/70"></span> 箱型</div>
                         )}
                       </div>
                     </div>
@@ -1086,7 +1091,7 @@ export default function App() {
                               label={{
                                 position: 'insideTopLeft',
                                 value: `箱型 ${data.rangeBox.lower.toFixed(2)}-${data.rangeBox.upper.toFixed(2)}`,
-                                fill: '#b45309',
+                                fill: '#64748b',
                                 fontSize: 10,
                                 fontWeight: 'bold'
                               }}
@@ -1095,51 +1100,52 @@ export default function App() {
                           {data.rangeBox?.isBoxRange && data.rangeBox?.upper != null && (
                             <ReferenceLine
                               y={data.rangeBox.upper}
-                              stroke="#f59e0b"
-                              strokeDasharray="5 4"
-                              label={{ position: 'insideRight', value: `箱頂 ${data.rangeBox.upper.toFixed(2)}`, fill: '#b45309', fontSize: 9, fontWeight: 'bold' }}
+                              stroke="#64748b"
+                              strokeDasharray="7 5"
+                              label={{ position: 'insideRight', value: `箱頂 ${data.rangeBox.upper.toFixed(2)}`, fill: '#475569', fontSize: 9, fontWeight: 'bold' }}
                             />
                           )}
                           {data.rangeBox?.isBoxRange && data.rangeBox?.lower != null && (
                             <ReferenceLine
                               y={data.rangeBox.lower}
-                              stroke="#10b981"
-                              strokeDasharray="5 4"
-                              label={{ position: 'insideRight', value: `箱底 ${data.rangeBox.lower.toFixed(2)}`, fill: '#059669', fontSize: 9, fontWeight: 'bold' }}
+                              stroke="#94a3b8"
+                              strokeDasharray="7 5"
+                              label={{ position: 'insideRight', value: `箱底 ${data.rangeBox.lower.toFixed(2)}`, fill: '#64748b', fontSize: 9, fontWeight: 'bold' }}
                             />
                           )}
                           {data.pivotPrice > 0 && (
                             <ReferenceLine 
                               y={data.pivotPrice} 
-                              stroke="#f43f5e" 
-                              strokeDasharray="3 3" 
+                              stroke="#dc2626"
+                              strokeWidth={1.8}
+                              strokeDasharray="8 4"
                               label={{ 
                                 position: 'insideRight', 
                                 value: `PIVOT ${data.baseType !== 'None' ? `(${data.baseType} Base)` : ''} (${data.pivotPrice?.toFixed(2) ?? 0})`, 
-                                fill: '#f43f5e', 
+                                fill: '#b91c1c',
                                 fontSize: 9, 
                                 fontWeight: 'bold' 
                               }} 
                             />
                           )}
-                          {data.vcpHigh && !data.isExtended && (
+                          {data.vcpHigh && !data.isExtended && (data.pivotPrice <= 0 || Math.abs(data.vcpHigh - data.pivotPrice) / data.pivotPrice > 0.015) && (
                             <ReferenceLine 
                                y={data.vcpHigh} 
-                               stroke="#7dd3fc" 
-                               strokeDasharray="3 3" 
+                               stroke="#0891b2"
+                               strokeDasharray="2 5"
                                label={{ 
                                  position: 'insideLeft', 
                                  value: `VCP ${data.isVolumeContracted ? '(Tight)' : ''} (${data.vcpHigh?.toFixed(2) ?? ''})`, 
-                                 fill: '#0ea5e9', 
+                                 fill: '#0e7490',
                                  fontSize: 9, 
                                  fontWeight: 'bold' 
                                }} 
                              />
                           )}
-                          <Line type="monotone" dataKey="price" stroke="#2563eb" strokeWidth={2.5} dot={false} name="收盤價" />
-                          <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="50MA" strokeDasharray="4 4" />
-                          <Line type="monotone" dataKey="ma150" stroke="#10b981" strokeWidth={1.5} dot={false} name="150MA" strokeDasharray="4 4" />
-                          <Line type="monotone" dataKey="ma200" stroke="#f43f5e" strokeWidth={1.5} dot={false} name="200MA" strokeDasharray="4 4" />
+                          <Line type="monotone" dataKey="price" stroke="#0f4c81" strokeWidth={3} dot={false} name="收盤價" />
+                          <Line type="monotone" dataKey="ma50" stroke="#f59e0b" strokeWidth={1.8} dot={false} name="50MA" />
+                          <Line type="monotone" dataKey="ma150" stroke="#14b8a6" strokeWidth={1.7} dot={false} name="150MA" strokeDasharray="8 4" />
+                          <Line type="monotone" dataKey="ma200" stroke="#7c3aed" strokeWidth={1.7} dot={false} name="200MA" strokeDasharray="2 5" />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
