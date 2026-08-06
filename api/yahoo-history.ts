@@ -24,7 +24,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const endDate = new Date()
-    const startDate = subDays(endDate, 90)
+    // 150 days covers pre-July swing high + July pullback + current recovery window.
+    const lookback = Math.min(Math.max(Number(req.query.days ?? 150) || 150, 60), 400)
+    const startDate = subDays(endDate, lookback)
     const historical = await yahooFinance.historical(symbol, {
       period1: format(startDate, 'yyyy-MM-dd'),
       period2: format(endDate, 'yyyy-MM-dd'),
@@ -36,6 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .filter((d: any) => d.close !== null && d.close !== undefined)
           .map((d: any) => ({
             date: d.date,
+            open: d.open ?? d.close,
             high: d.high ?? d.close,
             low: d.low ?? d.close,
             close: d.close,

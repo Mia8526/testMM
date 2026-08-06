@@ -1,6 +1,13 @@
 // StockSurge v5 - 2026/06/11
 import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import { RefreshCw, TrendingUp, Flame, AlertCircle, BookmarkPlus, Check } from "lucide-react";
+import {
+  calcJulyRecovery,
+  isJulyRecovery,
+  recoveryScore,
+  type HistoryBar,
+  type RecoveryKind,
+} from "./julyRecovery";
 
 // ─── 型別定義 ─────────────────────────────────────────────────────────────────
 
@@ -23,10 +30,18 @@ interface StockRow {
   disposition: boolean;
   flagReason?: string;
   flagPeriod?: string;
+  priorHigh?: number | null;
+  julyOpen?: number | null;
+  julyLow?: number | null;
+  recoveredPriorHigh?: boolean;
+  recoveredJulyOpen?: boolean;
+  recoveryKind?: RecoveryKind | null;
+  vsPriorHighPct?: number | null;
+  vsJulyOpenPct?: number | null;
 }
 
-type ViewMode = "bottom" | "trend" | "overheat";
-type SurgePattern = "低檔啟動" | "趨勢轉強" | "過熱警示" | null;
+type ViewMode = "bottom" | "trend" | "overheat" | "recovery";
+type SurgePattern = "低檔啟動" | "趨勢轉強" | "過熱警示" | "回檔收復" | null;
 
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
@@ -37,8 +52,8 @@ const MAX_BOTTOM_RANGE10 = 18;
 const MIN_REBOUND_VOL5 = 100;
 const MIN_OVERHEAT_C14 = 20;
 const MIN_OVERHEAT_RANGE10 = 30;
-const CACHE_KEY = "trendpulse_surge_cache_v7";
-const CACHE_VERSION = 7;
+const CACHE_KEY = "trendpulse_surge_cache_v8";
+const CACHE_VERSION = 8;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -386,21 +401,47 @@ async function fetchStockFlagMap(): Promise<Record<string, {
 
 
 function calcHistoryMetrics(
-  rows: { close: number; volume: number; high?: number; low?: number }[]
-): { c14: number | null; vol5: number | null; vol14: number | null; range10: number | null } {
+  rows: { date?: string; open?: number; close: number; volume: number; high?: number; low?: number }[],
+  currentPrice?: number
+): {
+  c14: number | null;
+  vol5: number | null;
+  vol14: number | null;
+  range10: number | null;
+  priorHigh: number | null;
+  julyOpen: number | null;
+  julyLow: number | null;
+  recoveredPriorHigh: boolean;
+  recoveredJulyOpen: boolean;
+  recoveryKind: RecoveryKind | null;
+  vsPriorHighPct: number | null;
+  vsJulyOpenPct: number | null;
+} {
+  const emptyRecovery = {
+    priorHigh: null,
+    julyOpen: null,
+    julyLow: null,
+    recoveredPriorHigh: false,
+    recoveredJulyOpen: false,
+    recoveryKind: null as RecoveryKind | null,
+    vsPriorHighPct: null,
+    vsJulyOpenPct: null,
+  };
   const allRows = rows
-    .filter((row) => Number.isFinite(row.close) && row.close > 0)
-    .slice(-40);
-  if (allRows.length < 5) return { c14: null, vol5: null, vol14: null, range10: null };
+    .filter((row) => Number.isFinite(row.close) && row.close > 0);
+  const recent = allRows.slice(-40);
+  if (recent.length < 5) {
+    return { c14: null, vol5: null, vol14: null, range10: null, ...emptyRecovery };
+  }
 
-  const n = allRows.length;
+  const n = recent.length;
   const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
-  const p0 = allRows[Math.max(0, n - 14)].close;
-  const p1 = allRows[n - 1].close;
+  const p0 = recent[Math.max(0, n - 14)].close;
+  const p1 = recent[n - 1].close;
   const c14 = p0 > 0 ? parseFloat(((p1 - p0) / p0 * 100).toFixed(1)) : null;
 
-  const volumes = allRows.map((row) => row.volume || 0);
+  const volumes = recent.map((row) => row.volume || 0);
   const recent5 = volumes.slice(-5);
   const prev5 = volumes.slice(Math.max(0, n - 10), n - 5);
   const vol5 =
@@ -415,7 +456,7 @@ function calcHistoryMetrics(
       ? Math.round(((avg(recent14) - avg(prev14)) / avg(prev14)) * 100)
       : null;
 
-  const recent10 = allRows.slice(-10);
+  const recent10 = recent.slice(-10);
   const range10 = recent10.length >= 10
     ? (() => {
         const highs = recent10.map((row) => Number.isFinite(row.high) ? row.high as number : row.close);
@@ -426,55 +467,108 @@ function calcHistoryMetrics(
       })()
     : null;
 
-  return { c14, vol5, vol14, range10 };
+  const historyBars: HistoryBar[] = allRows
+    .filter((row) => row.date)
+    .map((row) => ({
+      date: String(row.date),
+      open: Number.isFinite(row.open) ? Number(row.open) : row.close,
+      high: Number.isFinite(row.high) ? Number(row.high) : row.close,
+      low: Number.isFinite(row.low) ? Number(row.low) : row.close,
+      close: row.close,
+      volume: row.volume || 0,
+    }));
+  const recovery = calcJulyRecovery(historyBars, currentPrice);
+
+  return {
+    c14,
+    vol5,
+    vol14,
+    range10,
+    priorHigh: recovery.priorHigh,
+    julyOpen: recovery.julyOpen,
+    julyLow: recovery.julyLow,
+    recoveredPriorHigh: recovery.recoveredPriorHigh,
+    recoveredJulyOpen: recovery.recoveredJulyOpen,
+    recoveryKind: recovery.recoveryKind,
+    vsPriorHighPct: recovery.vsPriorHighPct,
+    vsJulyOpenPct: recovery.vsJulyOpenPct,
+  };
+}
+
+function emptyHistoryMetrics() {
+  return {
+    c14: null,
+    vol5: null,
+    vol14: null,
+    range10: null,
+    priorHigh: null,
+    julyOpen: null,
+    julyLow: null,
+    recoveredPriorHigh: false,
+    recoveredJulyOpen: false,
+    recoveryKind: null as RecoveryKind | null,
+    vsPriorHighPct: null,
+    vsJulyOpenPct: null,
+  };
+}
+
+async function fetchTwseMonthRows(code: string, year: number, month: number): Promise<string[][]> {
+  const ym = `${year}${String(month).padStart(2, "0")}01`;
+  const r = await fetch(`/api/twse-history?date=${ym}&stockNo=${code}`);
+  const d = r.ok ? await r.json() : null;
+  return d?.stat === "OK" && Array.isArray(d.data) ? d.data : [];
 }
 
 async function fetchHistory(
   code: string,
-  market: "上市" | "上櫃"
-): Promise<{ c14: number | null; vol5: number | null; vol14: number | null; range10: number | null }> {
+  market: "上市" | "上櫃",
+  currentPrice?: number
+): Promise<ReturnType<typeof emptyHistoryMetrics>> {
   try {
     if (market === "上櫃") {
-      const r = await fetch(`/api/yahoo-history?symbol=${code}.TWO`);
+      const r = await fetch(`/api/yahoo-history?symbol=${code}.TWO&days=160`);
       const d = r.ok ? await r.json() : null;
       const rows = d?.stat === "OK" && Array.isArray(d.data)
-        ? d.data.map((row: { close: number; volume: number; high?: number; low?: number }) => ({
+        ? d.data.map((row: {
+          date?: string;
+          open?: number;
+          close: number;
+          volume: number;
+          high?: number;
+          low?: number;
+        }) => ({
+            date: row.date ? String(row.date).slice(0, 10) : undefined,
+            open: Number(row.open ?? row.close),
             close: Number(row.close),
             volume: Number(row.volume || 0),
             high: Number(row.high || row.close),
             low: Number(row.low || row.close),
           }))
         : [];
-      return calcHistoryMetrics(rows);
+      return calcHistoryMetrics(rows, currentPrice);
     }
 
     const now = new Date();
-
-    // 抓本月資料
-    const ymThis = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}01`;
-    const r1 = await fetch(`/api/twse-history?date=${ymThis}&stockNo=${code}`);
-    const d1 = r1.ok ? await r1.json() : null;
-    const thisRows: string[][] = d1?.stat === "OK" && Array.isArray(d1.data) ? d1.data : [];
-
-    // 如果本月資料不足 28 筆，補抓上個月
-    let prevRows: string[][] = [];
-    if (thisRows.length < 28) {
-      const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const ymPrev = `${prevDate.getFullYear()}${String(prevDate.getMonth() + 1).padStart(2, "0")}01`;
-      const r2 = await fetch(`/api/twse-history?date=${ymPrev}&stockNo=${code}`);
-      const d2 = r2.ok ? await r2.json() : null;
-      prevRows = d2?.stat === "OK" && Array.isArray(d2.data) ? d2.data : [];
+    // Need June prior-high + July open/low + current month for recovery signals.
+    const months: { year: number; month: number }[] = [];
+    for (let back = 3; back >= 0; back -= 1) {
+      const dt = new Date(now.getFullYear(), now.getMonth() - back, 1);
+      months.push({ year: dt.getFullYear(), month: dt.getMonth() + 1 });
     }
-
-    const rows = [...prevRows, ...thisRows].map((row) => ({
+    const monthChunks = await Promise.all(
+      months.map(({ year, month }) => fetchTwseMonthRows(code, year, month))
+    );
+    const rows = monthChunks.flat().map((row) => ({
+      date: String(row[0] ?? ""),
+      open: parseFloat(row[3]?.replace(/,/g, "") ?? "0"),
       high: parseFloat(row[4]?.replace(/,/g, "") ?? "0"),
       low: parseFloat(row[5]?.replace(/,/g, "") ?? "0"),
       close: parseFloat(row[6]?.replace(/,/g, "") ?? "0"),
       volume: parseInt(row[1]?.replace(/,/g, "") ?? "0", 10),
     }));
-    return calcHistoryMetrics(rows);
+    return calcHistoryMetrics(rows, currentPrice);
   } catch {
-    return { c14: null, vol5: null, vol14: null, range10: null };
+    return emptyHistoryMetrics();
   }
 }
 
@@ -509,10 +603,19 @@ function isTrendStrong(s: StockRow): boolean {
   );
 }
 
+function isRecovery(s: StockRow): boolean {
+  return (
+    s.price > MIN_PRICE &&
+    (s.amount ?? 0) >= MIN_AMOUNT &&
+    isJulyRecovery({ recoveryKind: s.recoveryKind ?? null })
+  );
+}
+
 function getSurgePattern(s: StockRow): SurgePattern {
   if (isBottom(s)) return "低檔啟動";
   if (isOverheat(s)) return "過熱警示";
   if (isTrendStrong(s)) return "趨勢轉強";
+  if (isRecovery(s)) return "回檔收復";
   return null;
 }
 
@@ -543,6 +646,16 @@ function bottomScore(s: StockRow): number {
 function reboundScore(s: StockRow): number {
   const volatilityPenalty = Math.max((s.range10 ?? 0) - MAX_BOTTOM_RANGE10, 0) * 2;
   return Math.max(s.vol5 ?? 0, 0) * 0.35 + s.chg * 3 - volatilityPenalty;
+}
+
+function recoveryRankScore(s: StockRow): number {
+  return recoveryScore({
+    chg: s.chg,
+    recoveryKind: s.recoveryKind ?? null,
+    vsPriorHighPct: s.vsPriorHighPct ?? null,
+    vsJulyOpenPct: s.vsJulyOpenPct ?? null,
+    vol5: s.vol5,
+  });
 }
 
 function formatAmount(value: number | null): string {
@@ -594,6 +707,11 @@ function PatternBadge({ pattern }: { pattern: SurgePattern }) {
       bg: "rgba(240,92,92,0.12)",
       color: "var(--c-up)",
       border: "rgba(240,92,92,0.26)",
+    },
+    "回檔收復": {
+      bg: "rgba(43,189,142,0.14)",
+      color: "var(--c-dn)",
+      border: "rgba(43,189,142,0.28)",
     },
   };
   const style = styleByPattern[pattern];
@@ -667,6 +785,30 @@ function SortTh({
         {active ? (sortAsc ? "↑" : "↓") : "↕"}
       </span>
     </th>
+  );
+}
+
+function formatPct(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
+function RecoveryKindBadge({ kind }: { kind?: RecoveryKind | null }) {
+  if (!kind) return null;
+  return (
+    <span style={{
+      marginLeft: 6,
+      display: "inline-flex",
+      alignItems: "center",
+      fontSize: 10,
+      padding: "1px 6px",
+      borderRadius: 4,
+      background: kind === "雙收復" ? "rgba(43,189,142,0.18)" : "rgba(43,189,142,0.10)",
+      color: "var(--c-dn)",
+      border: "1px solid rgba(43,189,142,0.28)",
+    }}>
+      {kind}
+    </span>
   );
 }
 
@@ -823,7 +965,7 @@ export default function StockSurge({ onAddToWatchlist }: {
         const batch = historyTargets.slice(i, i + BATCH);
         const histResults = await Promise.all(
           batch.map(async (s) => {
-            const hist = await fetchHistory(s.code, s.market);
+            const hist = await fetchHistory(s.code, s.market, s.price);
             return { code: s.code, market: s.market, hist };
           })
         );
@@ -923,20 +1065,35 @@ export default function StockSurge({ onAddToWatchlist }: {
     .filter(isOverheat)
     .sort((a, b) => (b.c14 ?? 0) - (a.c14 ?? 0))
     .slice(0, LIST_LIMIT);
-  const modeRows = viewMode === "bottom" ? bottomRows : viewMode === "trend" ? trendRows : overheatRows;
+  const recoveryRows = stocks
+    .filter(isRecovery)
+    .sort((a, b) => recoveryRankScore(b) - recoveryRankScore(a))
+    .slice(0, LIST_LIMIT);
+  const modeRows =
+    viewMode === "bottom" ? bottomRows
+      : viewMode === "trend" ? trendRows
+        : viewMode === "overheat" ? overheatRows
+          : recoveryRows;
 
   const sorted = [...modeRows].sort((a, b) => {
+    const rankOf = (row: StockRow) =>
+      viewMode === "bottom" ? bottomScore(row)
+        : viewMode === "trend" ? reboundScore(row)
+          : viewMode === "overheat" ? (row.c14 ?? 0)
+            : recoveryRankScore(row);
     const va = sortKey === "rankScore"
-      ? (viewMode === "bottom" ? bottomScore(a) : viewMode === "trend" ? reboundScore(a) : (a.c14 ?? 0))
-      : a[sortKey] as number | string | null;
+      ? rankOf(a)
+      : a[sortKey as keyof StockRow] as number | string | null | undefined;
     const vb = sortKey === "rankScore"
-      ? (viewMode === "bottom" ? bottomScore(b) : viewMode === "trend" ? reboundScore(b) : (b.c14 ?? 0))
-      : b[sortKey] as number | string | null;
-    if (va === null && vb === null) return 0;
-    if (va === null) return 1;
-    if (vb === null) return -1;
+      ? rankOf(b)
+      : b[sortKey as keyof StockRow] as number | string | null | undefined;
+    if (va === null || va === undefined) {
+      if (vb === null || vb === undefined) return 0;
+      return 1;
+    }
+    if (vb === null || vb === undefined) return -1;
     if (typeof va === "string")
-      return sortAsc ? va.localeCompare(vb as string) : (vb as string).localeCompare(va);
+      return sortAsc ? va.localeCompare(String(vb)) : String(vb).localeCompare(va);
     return sortAsc ? (va as number) - (vb as number) : (vb as number) - (va as number);
   });
 
@@ -957,6 +1114,7 @@ export default function StockSurge({ onAddToWatchlist }: {
   const bottomCount = stocks.filter(isBottom).length;
   const trendCount = stocks.filter(isTrendStrong).length;
   const overheatCount = stocks.filter(isOverheat).length;
+  const recoveryCount = stocks.filter(isRecovery).length;
   const isRefreshing =
     status === "loading" ||
     loadNote.includes("連線") ||
@@ -1086,6 +1244,7 @@ export default function StockSurge({ onAddToWatchlist }: {
               {[
                 { key: "bottom" as const, label: "低檔啟動", count: Math.min(bottomCount, LIST_LIMIT) },
                 { key: "trend" as const, label: "趨勢轉強", count: Math.min(trendCount, LIST_LIMIT) },
+                { key: "recovery" as const, label: "回檔收復", count: Math.min(recoveryCount, LIST_LIMIT) },
                 { key: "overheat" as const, label: "過熱警示", count: Math.min(overheatCount, LIST_LIMIT) },
               ].map((item) => {
                 const active = viewMode === item.key;
@@ -1122,6 +1281,7 @@ export default function StockSurge({ onAddToWatchlist }: {
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
               {viewMode === "bottom" && "低檔啟動：低基期整理後放量，優先觀察。"}
               {viewMode === "trend" && "趨勢轉強：量能放大但尚未過熱，等續強或回測不破。"}
+              {viewMode === "recovery" && "回檔收復：7月有明顯回檔後，收復前高或回到7月開盤價。"}
               {viewMode === "overheat" && "過熱警示：14日漲幅 ≥20% 或10日震幅 ≥30%，不追高。"}
             </div>
             <span style={{
@@ -1157,9 +1317,20 @@ export default function StockSurge({ onAddToWatchlist }: {
                     <SortTh label="股價" sk="price" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 70 }} />
                     <SortTh label="今日漲幅" sk="chg" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
                     <SortTh label="成交金額" sk="amount" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 90 }} />
-                    <SortTh label="14日漲幅" sk="c14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
-                    <SortTh label="量能(5日)" sk="vol5" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
-                    <SortTh label="量能(14日)" sk="vol14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
+                    {viewMode === "recovery" ? (
+                      <>
+                        <SortTh label="前高" sk="priorHigh" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 72 }} />
+                        <SortTh label="距前高" sk="vsPriorHighPct" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
+                        <SortTh label="7月開盤" sk="julyOpen" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
+                        <SortTh label="距7月開" sk="vsJulyOpenPct" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
+                      </>
+                    ) : (
+                      <>
+                        <SortTh label="14日漲幅" sk="c14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
+                        <SortTh label="量能(5日)" sk="vol5" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
+                        <SortTh label="量能(14日)" sk="vol14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 130 }} />
+                      </>
+                    )}
                     <SortTh label="股本(億)" sk="cap" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
                     <SortTh label="產業" sk="ind" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} />
                     {onAddToWatchlist && (
@@ -1188,7 +1359,9 @@ export default function StockSurge({ onAddToWatchlist }: {
                         {/* 股名 */}
                         <td style={{ padding: "9px 12px", fontSize: 13, whiteSpace: "nowrap" }}>
                           {s.name}
-                          <PatternBadge pattern={pattern} />
+                          {viewMode === "recovery"
+                            ? <RecoveryKindBadge kind={s.recoveryKind} />
+                            : <PatternBadge pattern={pattern} />}
                           {s.disposition && (
                             <RiskBadge type="disposition" title={s.flagPeriod ? `處置期間：${s.flagPeriod}` : s.flagReason} />
                           )}
@@ -1218,17 +1391,42 @@ export default function StockSurge({ onAddToWatchlist }: {
                         <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums", color: "var(--c-text)" }}>
                           {formatAmount(s.amount)}
                         </td>
-                        {/* 14日漲幅 */}
-                        <td style={{
-                          padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
-                          color: s.c14 === null ? "var(--c-muted)" : s.c14 >= 0 ? "var(--c-up)" : "var(--c-dn)",
-                        }}>
-                          {s.c14 === null ? "—" : `${s.c14 >= 0 ? "+" : ""}${s.c14}%`}
-                        </td>
-                        {/* 量能 5日 */}
-                        <td style={{ padding: "9px 12px" }}><VolBar value={s.vol5} /></td>
-                        {/* 量能 14日 */}
-                        <td style={{ padding: "9px 12px" }}><VolBar value={s.vol14} /></td>
+                        {viewMode === "recovery" ? (
+                          <>
+                            <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                              {s.priorHigh != null ? s.priorHigh.toLocaleString() : "—"}
+                            </td>
+                            <td style={{
+                              padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                              color: (s.vsPriorHighPct ?? 0) >= 0 ? "var(--c-up)" : "var(--c-dn)",
+                            }}>
+                              {formatPct(s.vsPriorHighPct)}
+                            </td>
+                            <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                              {s.julyOpen != null ? s.julyOpen.toLocaleString() : "—"}
+                            </td>
+                            <td style={{
+                              padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                              color: (s.vsJulyOpenPct ?? 0) >= 0 ? "var(--c-up)" : "var(--c-dn)",
+                            }}>
+                              {formatPct(s.vsJulyOpenPct)}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            {/* 14日漲幅 */}
+                            <td style={{
+                              padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                              color: s.c14 === null ? "var(--c-muted)" : s.c14 >= 0 ? "var(--c-up)" : "var(--c-dn)",
+                            }}>
+                              {s.c14 === null ? "—" : `${s.c14 >= 0 ? "+" : ""}${s.c14}%`}
+                            </td>
+                            {/* 量能 5日 */}
+                            <td style={{ padding: "9px 12px" }}><VolBar value={s.vol5} /></td>
+                            {/* 量能 14日 */}
+                            <td style={{ padding: "9px 12px" }}><VolBar value={s.vol14} /></td>
+                          </>
+                        )}
                         {/* 股本 */}
                         <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--c-muted)", fontVariantNumeric: "tabular-nums" }}>
                           {s.cap !== null ? s.cap.toFixed(1) : "—"}
@@ -1418,6 +1616,7 @@ export default function StockSurge({ onAddToWatchlist }: {
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
             * 低檔啟動：14日漲幅 &lt;8%、5日量能 &gt;80%、10日震幅 ≤18%。<br />
             * 趨勢轉強：量能放大且尚未過熱；過熱警示為14日漲幅 ≥20%或10日震幅 ≥30%。<br />
+            * 回檔收復：7月低點相對前高至少回檔 8%，或相對7月開盤至少回檔 5%後，現價收回前高／7月開盤（容差 0.2%）。標籤為收復前高、收復7月開盤、雙收復。<br />
             * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>

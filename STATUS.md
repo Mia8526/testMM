@@ -17,4 +17,5 @@
 - 2026-07-20: Reduced Daily Surge to three actionable signal tabs (low-base start, trend strengthening, overheat warning) and hid unclassified stocks.
 - 2026-07-20: Simplified both watch-journal tables to five decision-focused columns and removed duplicated technical details.
 - 2026-07-20: Consolidated Trend Analysis into four decision sections: summary, key levels, future valuation, and chart; the watch journal now exists only on its dedicated page.
-- Latest verification: `pnpm run lint`, `pnpm run build`, API smoke tests for 4556/8383/2301/2449/3413 rangeBox output, and browser smoke test for 4556 non-box UI passed.
+- 2026-08-06: Added Daily Surge「回檔收復」tab for stocks that pulled back in July and have recovered the pre-July swing high and/or the July open. Recovery rules live in `src/lib/julyRecovery.ts` with unit tests; history lookback now includes open prices and ~4 months of bars.
+- Latest verification: `node --test src/lib/julyRecovery.test.ts src/lib/rangeBox.test.ts`, `pnpm run lint`, `pnpm run build` passed.
