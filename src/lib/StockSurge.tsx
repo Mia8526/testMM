@@ -1,10 +1,8 @@
 // StockSurge v5 - 2026/06/11
 import { useEffect, useState, useCallback, type CSSProperties } from "react";
-import { RefreshCw, TrendingUp, Flame, AlertCircle, BookmarkPlus, Check } from "lucide-react";
+import { RefreshCw, TrendingUp, AlertCircle, BookmarkPlus, Check } from "lucide-react";
 import {
   calcJulyRecovery,
-  isJulyRecovery,
-  recoveryScore,
   type HistoryBar,
   type RecoveryKind,
 } from "./julyRecovery";
@@ -38,21 +36,35 @@ interface StockRow {
   recoveryKind?: RecoveryKind | null;
   vsPriorHighPct?: number | null;
   vsJulyOpenPct?: number | null;
+  /** 近端頸線／整理高點（不含今日） */
+  neckline?: number | null;
+  /** 今日開盤相對昨收跳空 % */
+  gapPct?: number | null;
+  /** 今日量 / 近20日均量 */
+  volRatio?: number | null;
+  brokeNeckline?: boolean;
+  gappedUp?: boolean;
+  volumeSurge?: boolean;
 }
 
-type ViewMode = "probe" | "wait" | "skip";
-type ActionLabel = "今日試單" | "等突破" | "別追" | null;
+type ViewMode = "try" | "skip";
+type ActionLabel = "隔日可試" | "別追" | null;
 
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
-const MIN_PROBE_CHG = 7;
-const MAX_PROBE_C14 = 20;
-const MIN_PROBE_VOL5 = 50;
 const MIN_OVERHEAT_C14 = 20;
 const MIN_OVERHEAT_RANGE10 = 30;
-const CACHE_KEY = "trendpulse_surge_cache_v10";
-const CACHE_VERSION = 10;
+/** 跳空至少 1% 才算有力 */
+const MIN_GAP_PCT = 1;
+/** 今日量至少 1.5 倍近20日均量 */
+const MIN_VOL_RATIO = 1.5;
+/** 收盤相對頸線容差 */
+const NECKLINE_TOL = 0.002;
+/** 已高出頸線太多 = 追晚了，不算隔日可試 */
+const MAX_ABOVE_NECK_PCT = 8;
+const CACHE_KEY = "trendpulse_surge_cache_v11";
+const CACHE_VERSION = 11;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -415,6 +427,12 @@ function calcHistoryMetrics(
   recoveryKind: RecoveryKind | null;
   vsPriorHighPct: number | null;
   vsJulyOpenPct: number | null;
+  neckline: number | null;
+  gapPct: number | null;
+  volRatio: number | null;
+  brokeNeckline: boolean;
+  gappedUp: boolean;
+  volumeSurge: boolean;
 } {
   const emptyRecovery = {
     priorHigh: null,
@@ -425,6 +443,12 @@ function calcHistoryMetrics(
     recoveryKind: null as RecoveryKind | null,
     vsPriorHighPct: null,
     vsJulyOpenPct: null,
+    neckline: null,
+    gapPct: null,
+    volRatio: null,
+    brokeNeckline: false,
+    gappedUp: false,
+    volumeSurge: false,
   };
   const allRows = rows
     .filter((row) => Number.isFinite(row.close) && row.close > 0);
@@ -478,6 +502,28 @@ function calcHistoryMetrics(
     }));
   const recovery = calcJulyRecovery(historyBars, currentPrice);
 
+  // 今日 vs 近端整理：頸線=不含今日的近20日最高價；跳空=今開/昨收；放量=今日量/近20日均量
+  const today = recent[n - 1];
+  const prev = n >= 2 ? recent[n - 2] : null;
+  const lookback = recent.slice(Math.max(0, n - 21), n - 1);
+  const neckline = lookback.length >= 5
+    ? Math.max(...lookback.map((row) => (Number.isFinite(row.high) ? Number(row.high) : row.close)))
+    : null;
+  const todayClose = today.close;
+  const todayOpen = Number.isFinite(today.open) ? Number(today.open) : todayClose;
+  const todayVol = today.volume || 0;
+  const baseVols = lookback.map((row) => row.volume || 0).filter((v) => v > 0);
+  const baseVolAvg = baseVols.length >= 5 ? avg(baseVols) : 0;
+  const volRatio = baseVolAvg > 0 ? parseFloat((todayVol / baseVolAvg).toFixed(2)) : null;
+  const gapPct = prev && prev.close > 0
+    ? parseFloat((((todayOpen - prev.close) / prev.close) * 100).toFixed(2))
+    : null;
+  const brokeNeckline = neckline != null && neckline > 0
+    ? todayClose >= neckline * (1 - NECKLINE_TOL)
+    : false;
+  const gappedUp = gapPct != null ? gapPct >= MIN_GAP_PCT : false;
+  const volumeSurge = volRatio != null ? volRatio >= MIN_VOL_RATIO : false;
+
   return {
     c14,
     vol5,
@@ -491,6 +537,12 @@ function calcHistoryMetrics(
     recoveryKind: recovery.recoveryKind,
     vsPriorHighPct: recovery.vsPriorHighPct,
     vsJulyOpenPct: recovery.vsJulyOpenPct,
+    neckline: neckline != null ? parseFloat(neckline.toFixed(2)) : null,
+    gapPct,
+    volRatio,
+    brokeNeckline,
+    gappedUp,
+    volumeSurge,
   };
 }
 
@@ -508,6 +560,12 @@ function emptyHistoryMetrics() {
     recoveryKind: null as RecoveryKind | null,
     vsPriorHighPct: null,
     vsJulyOpenPct: null,
+    neckline: null,
+    gapPct: null,
+    volRatio: null,
+    brokeNeckline: false,
+    gappedUp: false,
+    volumeSurge: false,
   };
 }
 
@@ -571,10 +629,9 @@ async function fetchHistory(
   }
 }
 
-// ─── 可行動訊號：今日試單 / 等突破 / 別追 ────────────────────────────────────
-// 精誠：第一根大漲／漲停 → 今日試單（小量）
-// 台光電：已漲一大段 → 別追，或等明確突破價
-// 台虹：長時間觀察卻沒進場 → 必須寫死條件價，不能只丟觀察
+// ─── 可行動訊號：隔日可試 / 別追 ─────────────────────────────────────────────
+// Grace 規則：破頸線 + 量能加大 + 跳空 → 隔日小量可試
+// 已噴一段、沒有乾淨突破 → 別追；其餘不進榜，避免再堆觀察名單
 
 function isLiquid(s: StockRow): boolean {
   return s.price > MIN_PRICE && (s.amount ?? 0) >= MIN_AMOUNT;
@@ -587,88 +644,57 @@ function isExtended(s: StockRow): boolean {
   );
 }
 
-/** 今天就能小量試：首段大漲，尚未變成多日噴出 */
-function isProbe(s: StockRow): boolean {
-  return (
-    isLiquid(s) &&
-    !s.disposition &&
-    s.chg >= MIN_PROBE_CHG &&
-    (s.c14 === null || s.c14 < MAX_PROBE_C14) &&
-    (s.vol5 === null || s.vol5 > MIN_PROBE_VOL5)
-  );
+function necklineOf(s: StockRow): number | null {
+  if (s.neckline != null && s.neckline > 0) return s.neckline;
+  if (s.priorHigh != null && s.priorHigh > 0) return s.priorHigh;
+  return null;
 }
 
-/** 已噴一段，不要追價 */
+function aboveNeckPct(s: StockRow): number | null {
+  const neck = necklineOf(s);
+  if (neck == null || neck <= 0 || s.price <= 0) return null;
+  return ((s.price - neck) / neck) * 100;
+}
+
+/** 盤後確認：破頸線 + 放量 + 跳空，且尚未追太遠 → 隔日可小量試 */
+function isTryNext(s: StockRow): boolean {
+  if (!isLiquid(s) || s.disposition) return false;
+  if (!s.brokeNeckline || !s.volumeSurge || !s.gappedUp) return false;
+  const above = aboveNeckPct(s);
+  if (above != null && above > MAX_ABOVE_NECK_PCT) return false;
+  return true;
+}
+
+/** 已噴多、沒有乾淨隔日試單條件 → 別追 */
 function isSkip(s: StockRow): boolean {
-  return isLiquid(s) && isExtended(s) && !isProbe(s);
+  return isLiquid(s) && isExtended(s) && !isTryNext(s);
 }
 
 function triggerPriceOf(s: StockRow): number | null {
-  if (s.priorHigh != null && s.priorHigh > 0) return s.priorHigh;
-  if (s.julyOpen != null && s.julyOpen > 0) return s.julyOpen;
-  return null;
-}
-
-/** 有結構、想碰，但現在不追：寫死突破／回測條件 */
-function isWait(s: StockRow): boolean {
-  if (!isLiquid(s) || isProbe(s) || isSkip(s) || s.disposition) return false;
-  return isJulyRecovery({ recoveryKind: s.recoveryKind ?? null });
+  return necklineOf(s);
 }
 
 function getActionLabel(s: StockRow): ActionLabel {
-  if (isProbe(s)) return "今日試單";
+  if (isTryNext(s)) return "隔日可試";
   if (isSkip(s)) return "別追";
-  if (isWait(s)) return "等突破";
   return null;
-}
-
-function actionPlan(s: StockRow): string {
-  const label = getActionLabel(s);
-  const trigger = triggerPriceOf(s);
-  if (label === "今日試單") {
-    return "今日本檔小量試，不一次重倉";
-  }
-  if (label === "別追") {
-    return "已漲多／波動過大，不追價";
-  }
-  if (label === "等突破") {
-    if (trigger == null) return "等趨勢分析補頸線價，再決定";
-    const vs = s.price > 0 ? ((s.price - trigger) / trigger) * 100 : 0;
-    if (vs >= 0 && vs <= 3) return `已過 ${fmtPrice(trigger)}，回測不破再試`;
-    if (vs > 3) return `已高於條件價 ${fmtPrice(trigger)}，等回測再看`;
-    return `突破 ${fmtPrice(trigger)} 再試單`;
-  }
-  return "—";
 }
 
 function fmtPrice(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-function probeScore(s: StockRow): number {
-  return s.chg * 3 + Math.max(s.vol5 ?? 0, 0) * 0.2 - Math.max(s.c14 ?? 0, 0);
-}
-
-function waitScore(s: StockRow): number {
-  const trigger = triggerPriceOf(s);
-  const dist = trigger && s.price > 0 ? Math.abs(((s.price - trigger) / trigger) * 100) : 20;
-  return recoveryScore({
-    chg: s.chg,
-    recoveryKind: s.recoveryKind ?? null,
-    vsPriorHighPct: s.vsPriorHighPct ?? null,
-    vsJulyOpenPct: s.vsJulyOpenPct ?? null,
-    vol5: s.vol5,
-  }) - dist;
+function tryScore(s: StockRow): number {
+  const gap = Math.max(s.gapPct ?? 0, 0);
+  const vol = Math.max(s.volRatio ?? 0, 0) * 10;
+  const chg = s.chg * 2;
+  const above = aboveNeckPct(s);
+  const latePenalty = above != null && above > 3 ? (above - 3) * 2 : 0;
+  return gap * 3 + vol + chg - latePenalty;
 }
 
 function skipScore(s: StockRow): number {
   return Math.max(s.c14 ?? 0, 0) * 2 + Math.max(s.range10 ?? 0, 0);
-}
-
-function formatAmount(value: number | null): string {
-  if (value === null || value <= 0) return "—";
-  if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}億`;
-  return `${Math.round(value / 10_000).toLocaleString()}萬`;
 }
 
 function RiskBadge({ type, title }: { type: StockFlagType; title?: string }) {
@@ -700,15 +726,10 @@ function ActionBadge({ label }: { label: ActionLabel }) {
     color: string;
     border: string;
   }> = {
-    "今日試單": {
+    "隔日可試": {
       bg: "rgba(43,189,142,0.14)",
       color: "var(--c-dn)",
       border: "rgba(43,189,142,0.28)",
-    },
-    "等突破": {
-      bg: "rgba(96,165,250,0.14)",
-      color: "var(--c-blue)",
-      border: "rgba(96,165,250,0.28)",
     },
     "別追": {
       bg: "rgba(240,92,92,0.12)",
@@ -784,7 +805,7 @@ export default function StockSurge({ onAddToWatchlist }: {
   const [loadNote, setLoadNote] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("rankScore");
   const [sortAsc, setSortAsc] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("probe");
+  const [viewMode, setViewMode] = useState<ViewMode>("try");
   const [dataDate, setDataDate] = useState("");
   const [cacheSavedAt, setCacheSavedAt] = useState("");
   const [usingCache, setUsingCache] = useState(false);
@@ -980,7 +1001,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       pivotPrice: triggerPriceOf(s) ?? 0,
       suggestedStopLoss: 0,
       ma50Extension: "0",
-      extensionText: actionPlan(s),
+      extensionText: getActionLabel(s) ?? "",
       failedConditions: [],
     });
     setAddedCodes(prev => new Set(prev).add(s.code));
@@ -996,28 +1017,19 @@ export default function StockSurge({ onAddToWatchlist }: {
     }
   };
 
-  const probeRows = stocks
-    .filter(isProbe)
-    .sort((a, b) => probeScore(b) - probeScore(a))
-    .slice(0, LIST_LIMIT);
-  const waitRows = stocks
-    .filter(isWait)
-    .sort((a, b) => waitScore(b) - waitScore(a))
+  const tryRows = stocks
+    .filter(isTryNext)
+    .sort((a, b) => tryScore(b) - tryScore(a))
     .slice(0, LIST_LIMIT);
   const skipRows = stocks
     .filter(isSkip)
     .sort((a, b) => skipScore(b) - skipScore(a))
     .slice(0, LIST_LIMIT);
-  const modeRows =
-    viewMode === "probe" ? probeRows
-      : viewMode === "wait" ? waitRows
-        : skipRows;
+  const modeRows = viewMode === "try" ? tryRows : skipRows;
 
   const sorted = [...modeRows].sort((a, b) => {
     const rankOf = (row: StockRow) =>
-      viewMode === "probe" ? probeScore(row)
-        : viewMode === "wait" ? waitScore(row)
-          : skipScore(row);
+      viewMode === "try" ? tryScore(row) : skipScore(row);
     const va = sortKey === "rankScore"
       ? rankOf(a)
       : a[sortKey as keyof StockRow] as number | string | null | undefined;
@@ -1036,8 +1048,7 @@ export default function StockSurge({ onAddToWatchlist }: {
 
   // ── 統計 ─────────────────────────────────────────────────────────────────
 
-  const probeCount = stocks.filter(isProbe).length;
-  const waitCount = stocks.filter(isWait).length;
+  const tryCount = stocks.filter(isTryNext).length;
   const skipCount = stocks.filter(isSkip).length;
   const isRefreshing =
     status === "loading" ||
@@ -1151,7 +1162,6 @@ export default function StockSurge({ onAddToWatchlist }: {
       {/* ── 表格區 ── */}
       {stocks.length > 0 && (
         <>
-          {/* 進度提示 */}
           {loadNote && (
             <div style={{ fontSize: 12, color: "var(--c-muted)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
               <RefreshCw size={11} className={isRefreshing ? "spin" : ""} />
@@ -1159,15 +1169,13 @@ export default function StockSurge({ onAddToWatchlist }: {
             </div>
           )}
 
-          {/* 清單模式 */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
             <div style={{
               display: "inline-flex", padding: 3, borderRadius: 8,
               background: "var(--c-surface)", border: "1px solid var(--c-border)",
             }}>
               {[
-                { key: "probe" as const, label: "今日試單", count: Math.min(probeCount, LIST_LIMIT) },
-                { key: "wait" as const, label: "等突破", count: Math.min(waitCount, LIST_LIMIT) },
+                { key: "try" as const, label: "隔日可試", count: Math.min(tryCount, LIST_LIMIT) },
                 { key: "skip" as const, label: "別追", count: Math.min(skipCount, LIST_LIMIT) },
               ].map((item) => {
                 const active = viewMode === item.key;
@@ -1181,7 +1189,7 @@ export default function StockSurge({ onAddToWatchlist }: {
                     }}
                     style={{
                       border: 0, borderRadius: 6, cursor: "pointer",
-                      padding: "7px 12px", fontSize: 12, fontWeight: 600,
+                      padding: "7px 14px", fontSize: 12, fontWeight: 600,
                       background: active ? "var(--c-surface2)" : "transparent",
                       color: active ? "var(--c-text)" : "var(--c-muted)",
                     }}
@@ -1194,37 +1202,8 @@ export default function StockSurge({ onAddToWatchlist }: {
                 );
               })}
             </div>
-            <div style={{ fontSize: 12, color: "var(--c-muted)" }}>
-              符合 {sorted.length} 檔
-            </div>
           </div>
 
-          {/* 圖例說明 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
-              {viewMode === "probe" && "今日試單：第一根大漲／漲停、尚未多日噴出，可小量試。"}
-              {viewMode === "wait" && "等突破：有回檔收復結構，但還沒到條件價；寫死突破／回測價，不要空觀察。"}
-              {viewMode === "skip" && "別追：已漲多或波動過大，現在追高沒意義。"}
-            </div>
-            <span style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 11, padding: "2px 8px", borderRadius: 5,
-              background: "rgba(245,158,11,0.12)", color: "var(--c-amber)",
-            }}>
-              <Flame size={11} />
-              每檔都寫動作，不堆觀察名單
-            </span>
-            <span style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 11, padding: "2px 8px", borderRadius: 5,
-              background: "rgba(240,92,92,0.10)", color: "var(--c-up)",
-            }}>
-              注意／處置股會保留警示標籤
-            </span>
-            <span style={{ fontSize: 11, color: "var(--c-muted)" }}>點欄位標題可排序</span>
-          </div>
-
-          {/* 表格 */}
           <div style={{
             border: "1px solid var(--c-border)", borderRadius: 12,
             overflow: "hidden", marginBottom: 24,
@@ -1234,23 +1213,21 @@ export default function StockSurge({ onAddToWatchlist }: {
                 <thead>
                   <tr style={{ background: "var(--c-surface2)", borderBottom: "1px solid var(--c-border)" }}>
                     <SortTh label="代號" sk="code" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 64 }} />
-                    <SortTh label="股名" sk="name" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 90 }} />
-                    <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 52 }}>市場</th>
-                    <SortTh label="股價" sk="price" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 70 }} />
-                    <SortTh label="今日漲幅" sk="chg" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
-                    <SortTh label="成交金額" sk="amount" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 90 }} />
-                    <SortTh label="14日漲幅" sk="c14" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 80 }} />
-                    <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 88 }}>條件價</th>
-                    <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", minWidth: 180 }}>動作</th>
+                    <SortTh label="股名" sk="name" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 100 }} />
+                    <SortTh label="股價" sk="price" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 72 }} />
+                    <SortTh label="漲幅" sk="chg" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 72 }} />
+                    <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 72 }}>跳空</th>
+                    <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 64 }}>量比</th>
+                    <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 80 }}>頸線</th>
                     {onAddToWatchlist && (
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", width: 60 }}>加入</th>
+                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", width: 52 }} />
                     )}
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((s, i) => {
                     const label = getActionLabel(s);
-                    const trigger = triggerPriceOf(s);
+                    const neck = necklineOf(s);
                     return (
                       <tr
                         key={`${s.code}-${s.market}`}
@@ -1272,41 +1249,32 @@ export default function StockSurge({ onAddToWatchlist }: {
                             <RiskBadge type="attention" title={s.flagReason} />
                           )}
                         </td>
-                        <td style={{ padding: "9px 12px" }}>
-                          <span style={{
-                            fontSize: 11, padding: "2px 7px", borderRadius: 4,
-                            background: s.market === "上市" ? "rgba(96,165,250,0.15)" : "rgba(43,189,142,0.15)",
-                            color: s.market === "上市" ? "var(--c-blue)" : "var(--c-dn)",
-                          }}>
-                            {s.market}
-                          </span>
-                        </td>
                         <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
                           {s.price.toLocaleString()}
                         </td>
                         <td style={{ padding: "9px 12px", fontSize: 13, fontWeight: 600, color: "var(--c-up)", fontVariantNumeric: "tabular-nums" }}>
-                          +{s.chg.toFixed(2)}%
-                        </td>
-                        <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums", color: "var(--c-text)" }}>
-                          {formatAmount(s.amount)}
+                          +{s.chg.toFixed(1)}%
                         </td>
                         <td style={{
                           padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
-                          color: s.c14 === null ? "var(--c-muted)" : s.c14 >= 0 ? "var(--c-up)" : "var(--c-dn)",
+                          color: s.gapPct == null ? "var(--c-muted)" : s.gapPct >= MIN_GAP_PCT ? "var(--c-up)" : "var(--c-muted)",
                         }}>
-                          {s.c14 === null ? "—" : `${s.c14 >= 0 ? "+" : ""}${s.c14}%`}
+                          {s.gapPct == null ? "—" : `${s.gapPct >= 0 ? "+" : ""}${s.gapPct}%`}
+                        </td>
+                        <td style={{
+                          padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                          color: s.volRatio == null ? "var(--c-muted)" : s.volRatio >= MIN_VOL_RATIO ? "var(--c-up)" : "var(--c-muted)",
+                        }}>
+                          {s.volRatio == null ? "—" : `${s.volRatio}x`}
                         </td>
                         <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                          {trigger != null ? fmtPrice(trigger) : "—"}
-                        </td>
-                        <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--c-text)", lineHeight: 1.45, maxWidth: 240 }}>
-                          {actionPlan(s)}
+                          {neck != null ? fmtPrice(neck) : "—"}
                         </td>
                         {onAddToWatchlist && (
                           <td style={{ padding: "9px 12px", textAlign: "center" }}>
                             <button
                               onClick={() => handleAddToWatchlist(s)}
-                              title={viewMode === "wait" ? "加入待買（寫死條件）" : "加入待買"}
+                              title="加入"
                               style={{
                                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                                 width: 28, height: 28, borderRadius: 6, cursor: "pointer",
@@ -1329,16 +1297,6 @@ export default function StockSurge({ onAddToWatchlist }: {
                 </tbody>
               </table>
             </div>
-          </div>
-
-          {/* 備注 */}
-          <div style={{ fontSize: 11, color: "var(--c-muted)", lineHeight: 1.9 }}>
-            * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:45 更新。<br />
-            * 頁面會先使用瀏覽器暫存；平日 15:45 後自動更新，按「重新整理」可立即強制重抓。<br />
-            * 今日試單：今日漲幅 ≥7%、14日漲幅 &lt;20%、有量，且非處置；對應「第一根大漲可小量試」。<br />
-            * 等突破：有回檔收復結構，但還沒到可追價位置；條件價優先用前高，其次 7 月開盤。動作會寫「突破 X 再試」或「回測不破再試」。<br />
-            * 別追：14日漲幅 ≥20% 或 10日震幅 ≥30%，且不符合今日試單；已漲多就不要追。<br />
-            * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>
       )}
