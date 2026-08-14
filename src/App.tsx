@@ -119,7 +119,6 @@ interface WatchlistItem {
   vol14?: number | null;
   amount?: number | null;
   surgeMode?: string;
-  isBottomSignal?: boolean;
   attention?: boolean;
   disposition?: boolean;
   flagReason?: string;
@@ -230,12 +229,11 @@ export default function App() {
       `${item.currency} ${item.price}`,
       item.source === 'surge' ? `${item.market ?? '-'} / ${item.industry ?? '-'}` : '-',
       item.source === 'surge'
-        ? `今日 ${formatPct(item.todayChange)}; 14日 ${formatPct(item.c14)}; 5日量 ${formatPct(item.vol5)}; 14日量 ${formatPct(item.vol14)}${item.isBottomSignal ? '; 底部啟動' : ''}`
+        ? `今日 ${formatPct(item.todayChange)}; 14日 ${formatPct(item.c14)}; 5日量 ${formatPct(item.vol5)}; 14日量 ${formatPct(item.vol14)}`
         : '-',
       item.source === 'surge' ? formatAmount(item.amount) : '-',
       item.source === 'surge'
         ? [
-            item.isBottomSignal ? '底部啟動' : '',
             item.disposition ? '處置' : '',
             item.attention ? '注意' : '',
             item.flagPeriod ? `期間 ${item.flagPeriod}` : ''
@@ -498,11 +496,6 @@ export default function App() {
     if (isSurgeItem(item)) {
       return (
         <div className="flex flex-wrap gap-1">
-          {item.isBottomSignal && (
-            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold">
-              底部啟動
-            </span>
-          )}
           {item.disposition && (
             <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-bold">
               處置

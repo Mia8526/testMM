@@ -40,20 +40,16 @@ interface StockRow {
   vsJulyOpenPct?: number | null;
 }
 
-type ViewMode = "bottom" | "trend" | "overheat" | "recovery";
-type SurgePattern = "低檔啟動" | "趨勢轉強" | "過熱警示" | "回檔收復" | null;
+type ViewMode = "recovery" | "overheat";
+type SurgePattern = "回檔收復" | "過熱警示" | null;
 
 const MIN_PRICE = 10;
 const MIN_AMOUNT = 50_000_000;
 const LIST_LIMIT = 30;
-const MAX_BOTTOM_C14 = 8;
-const MIN_BOTTOM_VOL5 = 80;
-const MAX_BOTTOM_RANGE10 = 18;
-const MIN_REBOUND_VOL5 = 100;
 const MIN_OVERHEAT_C14 = 20;
 const MIN_OVERHEAT_RANGE10 = 30;
-const CACHE_KEY = "trendpulse_surge_cache_v8";
-const CACHE_VERSION = 8;
+const CACHE_KEY = "trendpulse_surge_cache_v9";
+const CACHE_VERSION = 9;
 const REFRESH_HOUR = 15;
 const REFRESH_MINUTE = 45;
 
@@ -572,17 +568,7 @@ async function fetchHistory(
   }
 }
 
-// ─── 底部啟動判斷 ─────────────────────────────────────────────────────────────
-
-function isBottom(s: StockRow): boolean {
-  return (
-    s.price > MIN_PRICE &&
-    (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.c14 !== null ? s.c14 < MAX_BOTTOM_C14 : false) &&
-    (s.vol5 !== null ? s.vol5 > MIN_BOTTOM_VOL5 : false) &&
-    (s.range10 !== null ? s.range10 <= MAX_BOTTOM_RANGE10 : false)
-  );
-}
+// ─── 可行動訊號：只留「可考慮 / 別追」────────────────────────────────────────
 
 function isOverheat(s: StockRow): boolean {
   return (
@@ -593,59 +579,19 @@ function isOverheat(s: StockRow): boolean {
   );
 }
 
-function isTrendStrong(s: StockRow): boolean {
-  return (
-    s.price > MIN_PRICE &&
-    (s.amount ?? 0) >= MIN_AMOUNT &&
-    (s.vol5 !== null ? s.vol5 > MIN_REBOUND_VOL5 : false) &&
-    !isBottom(s) &&
-    !isOverheat(s)
-  );
-}
-
 function isRecovery(s: StockRow): boolean {
   return (
     s.price > MIN_PRICE &&
     (s.amount ?? 0) >= MIN_AMOUNT &&
-    isJulyRecovery({ recoveryKind: s.recoveryKind ?? null })
+    isJulyRecovery({ recoveryKind: s.recoveryKind ?? null }) &&
+    !isOverheat(s)
   );
 }
 
 function getSurgePattern(s: StockRow): SurgePattern {
-  if (isBottom(s)) return "低檔啟動";
   if (isOverheat(s)) return "過熱警示";
-  if (isTrendStrong(s)) return "趨勢轉強";
   if (isRecovery(s)) return "回檔收復";
   return null;
-}
-
-function isVolumeRebound(s: StockRow): boolean {
-  return isTrendStrong(s);
-}
-
-function isQuality(s: StockRow): boolean {
-  return (
-    s.price > MIN_PRICE &&
-    (s.amount ?? 0) >= MIN_AMOUNT &&
-    !s.attention &&
-    !s.disposition
-  );
-}
-
-function qualityScore(s: StockRow): number {
-  const amountScore = Math.log10(Math.max(s.amount ?? 1, 1)) * 10;
-  const volScore = Math.max(s.vol5 ?? 0, 0) * 0.06;
-  const chgScore = s.chg * 2;
-  return amountScore + volScore + chgScore;
-}
-
-function bottomScore(s: StockRow): number {
-  return Math.max(s.vol5 ?? 0, 0) * 0.5 + s.chg * 2 - Math.max(s.c14 ?? 0, 0);
-}
-
-function reboundScore(s: StockRow): number {
-  const volatilityPenalty = Math.max((s.range10 ?? 0) - MAX_BOTTOM_RANGE10, 0) * 2;
-  return Math.max(s.vol5 ?? 0, 0) * 0.35 + s.chg * 3 - volatilityPenalty;
 }
 
 function recoveryRankScore(s: StockRow): number {
@@ -693,16 +639,6 @@ function PatternBadge({ pattern }: { pattern: SurgePattern }) {
     color: string;
     border: string;
   }> = {
-    "低檔啟動": {
-      bg: "rgba(245,158,11,0.15)",
-      color: "var(--c-amber)",
-      border: "rgba(245,158,11,0.28)",
-    },
-    "趨勢轉強": {
-      bg: "rgba(96,165,250,0.14)",
-      color: "var(--c-blue)",
-      border: "rgba(96,165,250,0.28)",
-    },
     "過熱警示": {
       bg: "rgba(240,92,92,0.12)",
       color: "var(--c-up)",
@@ -820,7 +756,7 @@ export default function StockSurge({ onAddToWatchlist }: {
     source?: 'analysis' | 'surge'; price: number; currency: string;
     market?: string; industry?: string; todayChange?: number | null;
     c14?: number | null; vol5?: number | null; vol14?: number | null;
-    amount?: number | null; surgeMode?: string; isBottomSignal?: boolean;
+    amount?: number | null; surgeMode?: string;
     attention?: boolean; disposition?: boolean; flagReason?: string; flagPeriod?: string;
     pivotPrice: number;
     suggestedStopLoss: number; ma50Extension: string;
@@ -833,12 +769,11 @@ export default function StockSurge({ onAddToWatchlist }: {
   const [loadNote, setLoadNote] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("rankScore");
   const [sortAsc, setSortAsc] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("bottom");
+  const [viewMode, setViewMode] = useState<ViewMode>("recovery");
   const [dataDate, setDataDate] = useState("");
   const [cacheSavedAt, setCacheSavedAt] = useState("");
   const [usingCache, setUsingCache] = useState(false);
   const [addedCodes, setAddedCodes] = useState<Set<string>>(new Set());
-  const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
 
   // ── 主要資料載入邏輯 ──────────────────────────────────────────────────────
 
@@ -1005,12 +940,6 @@ export default function StockSurge({ onAddToWatchlist }: {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  useEffect(() => {
-    if (selectedIndustry && stocks.length > 0 && !stocks.some((s) => s.ind === selectedIndustry)) {
-      setSelectedIndustry(null);
-    }
-  }, [selectedIndustry, stocks]);
-
   const handleAddToWatchlist = useCallback((s: StockRow) => {
     if (!onAddToWatchlist) return;
     onAddToWatchlist({
@@ -1029,7 +958,6 @@ export default function StockSurge({ onAddToWatchlist }: {
       vol14: s.vol14,
       amount: s.amount,
       surgeMode: getSurgePattern(s) ?? "符合訊號",
-      isBottomSignal: isBottom(s),
       attention: s.attention,
       disposition: s.disposition,
       flagReason: s.flagReason,
@@ -1041,7 +969,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       failedConditions: [],
     });
     setAddedCodes(prev => new Set(prev).add(s.code));
-  }, [onAddToWatchlist, viewMode]);
+  }, [onAddToWatchlist]);
 
   // ── 排序 ─────────────────────────────────────────────────────────────────
 
@@ -1053,34 +981,19 @@ export default function StockSurge({ onAddToWatchlist }: {
     }
   };
 
-  const bottomRows = stocks
-    .filter(isBottom)
-    .sort((a, b) => bottomScore(b) - bottomScore(a))
-    .slice(0, LIST_LIMIT);
-  const trendRows = stocks
-    .filter(isTrendStrong)
-    .sort((a, b) => reboundScore(b) - reboundScore(a))
+  const recoveryRows = stocks
+    .filter(isRecovery)
+    .sort((a, b) => recoveryRankScore(b) - recoveryRankScore(a))
     .slice(0, LIST_LIMIT);
   const overheatRows = stocks
     .filter(isOverheat)
     .sort((a, b) => (b.c14 ?? 0) - (a.c14 ?? 0))
     .slice(0, LIST_LIMIT);
-  const recoveryRows = stocks
-    .filter(isRecovery)
-    .sort((a, b) => recoveryRankScore(b) - recoveryRankScore(a))
-    .slice(0, LIST_LIMIT);
-  const modeRows =
-    viewMode === "bottom" ? bottomRows
-      : viewMode === "trend" ? trendRows
-        : viewMode === "overheat" ? overheatRows
-          : recoveryRows;
+  const modeRows = viewMode === "recovery" ? recoveryRows : overheatRows;
 
   const sorted = [...modeRows].sort((a, b) => {
     const rankOf = (row: StockRow) =>
-      viewMode === "bottom" ? bottomScore(row)
-        : viewMode === "trend" ? reboundScore(row)
-          : viewMode === "overheat" ? (row.c14 ?? 0)
-            : recoveryRankScore(row);
+      viewMode === "recovery" ? recoveryRankScore(row) : (row.c14 ?? 0);
     const va = sortKey === "rankScore"
       ? rankOf(a)
       : a[sortKey as keyof StockRow] as number | string | null | undefined;
@@ -1099,22 +1012,8 @@ export default function StockSurge({ onAddToWatchlist }: {
 
   // ── 統計 ─────────────────────────────────────────────────────────────────
 
-  const indMap: Record<string, number> = {};
-  stocks.forEach((s) => { indMap[s.ind] = (indMap[s.ind] ?? 0) + 1; });
-  const indEntries = Object.entries(indMap).sort((a, b) => b[1] - a[1]);
-  const maxInd = indEntries[0]?.[1] ?? 1;
-  const selectedIndustryRows = selectedIndustry
-    ? stocks
-        .filter((s) => s.ind === selectedIndustry)
-        .sort((a, b) => qualityScore(b) - qualityScore(a))
-    : [];
-  const selectedIndustryAmount = selectedIndustryRows.reduce((sum, s) => sum + (s.amount ?? 0), 0);
-  const selectedIndustryBottomCount = selectedIndustryRows.filter(isBottom).length;
-  const selectedIndustryReboundCount = selectedIndustryRows.filter(isVolumeRebound).length;
-  const bottomCount = stocks.filter(isBottom).length;
-  const trendCount = stocks.filter(isTrendStrong).length;
-  const overheatCount = stocks.filter(isOverheat).length;
   const recoveryCount = stocks.filter(isRecovery).length;
+  const overheatCount = stocks.filter(isOverheat).length;
   const isRefreshing =
     status === "loading" ||
     loadNote.includes("連線") ||
@@ -1242,10 +1141,8 @@ export default function StockSurge({ onAddToWatchlist }: {
               background: "var(--c-surface)", border: "1px solid var(--c-border)",
             }}>
               {[
-                { key: "bottom" as const, label: "低檔啟動", count: Math.min(bottomCount, LIST_LIMIT) },
-                { key: "trend" as const, label: "趨勢轉強", count: Math.min(trendCount, LIST_LIMIT) },
-                { key: "recovery" as const, label: "回檔收復", count: Math.min(recoveryCount, LIST_LIMIT) },
-                { key: "overheat" as const, label: "過熱警示", count: Math.min(overheatCount, LIST_LIMIT) },
+                { key: "recovery" as const, label: "回檔收復｜可考慮", count: Math.min(recoveryCount, LIST_LIMIT) },
+                { key: "overheat" as const, label: "過熱警示｜別追", count: Math.min(overheatCount, LIST_LIMIT) },
               ].map((item) => {
                 const active = viewMode === item.key;
                 return (
@@ -1279,9 +1176,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           {/* 圖例說明 */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
-              {viewMode === "bottom" && "低檔啟動：低基期整理後放量，優先觀察。"}
-              {viewMode === "trend" && "趨勢轉強：量能放大但尚未過熱，等續強或回測不破。"}
-              {viewMode === "recovery" && "回檔收復：7月有明顯回檔後，收復前高或回到7月開盤價。"}
+              {viewMode === "recovery" && "回檔收復：有明顯回檔後收回前高／7月開盤，優先看這批。"}
               {viewMode === "overheat" && "過熱警示：14日漲幅 ≥20% 或10日震幅 ≥30%，不追高。"}
             </div>
             <span style={{
@@ -1290,7 +1185,7 @@ export default function StockSurge({ onAddToWatchlist }: {
               background: "rgba(245,158,11,0.12)", color: "var(--c-amber)",
             }}>
               <Flame size={11} />
-              只顯示符合訊號的股票
+              只顯示可行動訊號，不堆觀察名單
             </span>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
@@ -1340,16 +1235,13 @@ export default function StockSurge({ onAddToWatchlist }: {
                 </thead>
                 <tbody>
                   {sorted.map((s, i) => {
-                    const bottom = isBottom(s);
                     const pattern = getSurgePattern(s);
                     return (
                       <tr
                         key={`${s.code}-${s.market}`}
                         style={{
                           borderTop: "1px solid var(--c-border)",
-                          background: bottom
-                            ? "rgba(245,158,11,0.05)"
-                            : i % 2 === 0 ? "var(--c-surface)" : "transparent",
+                          background: i % 2 === 0 ? "var(--c-surface)" : "transparent",
                         }}
                       >
                         {/* 代號 */}
@@ -1471,152 +1363,13 @@ export default function StockSurge({ onAddToWatchlist }: {
             </div>
           </div>
 
-          {/* ── 產業分類 ── */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--c-muted)" }}>
-                今日強勢股產業分類
-              </div>
-              <div style={{ fontSize: 11, color: "var(--c-muted)", marginTop: 3 }}>
-                點分類可查看該產業細項；再點一次可收合
-              </div>
-            </div>
-            {selectedIndustry && (
-              <button
-                type="button"
-                onClick={() => setSelectedIndustry(null)}
-                style={{
-                  border: "1px solid var(--c-border)", borderRadius: 8, cursor: "pointer",
-                  padding: "6px 10px", fontSize: 12, background: "var(--c-surface)", color: "var(--c-muted)",
-                }}
-              >
-                清除分類
-              </button>
-            )}
-          </div>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: 8, marginBottom: selectedIndustry ? 12 : 24,
-          }}>
-            {indEntries.map(([ind, cnt]) => {
-              const active = selectedIndustry === ind;
-              return (
-                <button
-                  key={ind}
-                  type="button"
-                  onClick={() => setSelectedIndustry(active ? null : ind)}
-                  aria-pressed={active}
-                  style={{
-                    textAlign: "left",
-                    background: active ? "rgba(240,92,92,0.10)" : "var(--c-surface)",
-                    border: active ? "1px solid rgba(240,92,92,0.45)" : "1px solid var(--c-border)",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    color: "var(--c-text)",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    boxShadow: active ? "0 0 0 1px rgba(240,92,92,0.12) inset" : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 13 }}>{ind}</span>
-                    <span style={{ fontSize: 20, fontWeight: 600, color: "var(--c-up)" }}>{cnt}</span>
-                  </div>
-                  <div style={{ height: 3, borderRadius: 2, background: "var(--c-surface2)" }}>
-                    <div style={{
-                      height: 3, borderRadius: 2, background: active ? "var(--c-amber)" : "var(--c-up)",
-                      width: `${(cnt / maxInd) * 100}%`,
-                    }} />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {selectedIndustry && (
-            <div style={{
-              background: "var(--c-surface)", border: "1px solid var(--c-border)",
-              borderRadius: 12, overflow: "hidden", marginBottom: 24,
-            }}>
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap",
-                padding: "14px 16px", borderBottom: "1px solid var(--c-border)", background: "var(--c-surface2)",
-              }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{selectedIndustry} 細項</div>
-                  <div style={{ fontSize: 11, color: "var(--c-muted)", marginTop: 3 }}>
-                    依精選分數排序，方便先看最值得追蹤的股票
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: "var(--c-muted)" }}>股數 {selectedIndustryRows.length}</span>
-                  <span style={{ fontSize: 11, color: "var(--c-muted)" }}>成交 {formatAmount(selectedIndustryAmount || null)}</span>
-                  <span style={{ fontSize: 11, color: "var(--c-amber)" }}>底部 {selectedIndustryBottomCount || "—"}</span>
-                  <span style={{ fontSize: 11, color: "var(--c-blue)" }}>轉強 {selectedIndustryReboundCount || "—"}</span>
-                </div>
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--c-border)" }}>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>代號</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>股名</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>市場</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>股價</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>今日</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>成交</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "right" }}>14日</th>
-                      <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", textAlign: "left" }}>訊號</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedIndustryRows.map((s, i) => {
-                      const pattern = getSurgePattern(s);
-                      return (
-                        <tr
-                          key={`industry-${s.code}-${s.market}`}
-                          style={{
-                            borderTop: "1px solid var(--c-border)",
-                            background: i % 2 === 0 ? "var(--c-surface)" : "transparent",
-                          }}
-                        >
-                          <td style={{ padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{s.code}</td>
-                          <td style={{ padding: "9px 12px", fontSize: 13, whiteSpace: "nowrap" }}>
-                            {s.name}
-                            {s.disposition && <RiskBadge type="disposition" title={s.flagPeriod ? `處置期間：${s.flagPeriod}` : s.flagReason} />}
-                            {!s.disposition && s.attention && <RiskBadge type="attention" title={s.flagReason} />}
-                          </td>
-                          <td style={{ padding: "9px 12px", fontSize: 12, color: "var(--c-muted)", whiteSpace: "nowrap" }}>{s.market}</td>
-                          <td style={{ padding: "9px 12px", fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.price.toLocaleString()}</td>
-                          <td style={{ padding: "9px 12px", fontSize: 13, textAlign: "right", color: "var(--c-up)", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>+{s.chg.toFixed(2)}%</td>
-                          <td style={{ padding: "9px 12px", fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatAmount(s.amount)}</td>
-                          <td style={{
-                            padding: "9px 12px", fontSize: 13, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums",
-                            color: s.c14 === null ? "var(--c-muted)" : s.c14 >= 0 ? "var(--c-up)" : "var(--c-dn)",
-                          }}>
-                            {s.c14 === null ? "—" : `${s.c14 >= 0 ? "+" : ""}${s.c14}%`}
-                          </td>
-                          <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
-                            {pattern ? <PatternBadge pattern={pattern} /> : <span style={{ fontSize: 11, color: "var(--c-muted)" }}>—</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* 備注 */}
           <div style={{ fontSize: 11, color: "var(--c-muted)", lineHeight: 1.9 }}>
             * 資料來源：台灣證交所（TWSE）、櫃買中心（TPEx）官方盤後 API，盤後約 15:45 更新。<br />
             * 頁面會先使用瀏覽器暫存；平日 15:45 後自動更新，按「重新整理」可立即強制重抓。<br />
             * 量能變化 = 近N日均量 ÷ 前N日均量 − 1，正值代表量能放大，負值代表萎縮。<br />
-            * 低檔啟動：14日漲幅 &lt;8%、5日量能 &gt;80%、10日震幅 ≤18%。<br />
-            * 趨勢轉強：量能放大且尚未過熱；過熱警示為14日漲幅 ≥20%或10日震幅 ≥30%。<br />
-            * 回檔收復：7月低點相對前高至少回檔 8%，或相對7月開盤至少回檔 5%後，現價收回前高／7月開盤（容差 0.2%）。標籤為收復前高、收復7月開盤、雙收復。<br />
+            * 回檔收復｜可考慮：7月低點相對前高至少回檔 8%，或相對7月開盤至少回檔 5%後，現價收回前高／7月開盤（容差 0.2%），且未過熱。標籤為收復前高、收復7月開盤、雙收復。<br />
+            * 過熱警示｜別追：14日漲幅 ≥20%或10日震幅 ≥30%。<br />
             * 上市歷史資料使用 TWSE；上櫃歷史資料使用 Yahoo Finance 補齊，若資料源暫時缺值才會顯示「—」。
           </div>
         </>
