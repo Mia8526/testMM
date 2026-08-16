@@ -1215,7 +1215,7 @@ export default function StockSurge({ onAddToWatchlist }: {
                     <SortTh label="代號" sk="code" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 64 }} />
                     <SortTh label="股名" sk="name" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 100 }} />
                     <SortTh label="股價" sk="price" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 72 }} />
-                    <SortTh label="漲幅" sk="chg" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 72 }} />
+                    <SortTh label="股本" sk="cap" sortKey={sortKey} sortAsc={sortAsc} onSort={handleSort} style={{ width: 72 }} />
                     <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 72 }}>跳空</th>
                     <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 64 }}>量比</th>
                     <th style={{ padding: "10px 12px", fontSize: 12, fontWeight: 500, color: "var(--c-muted)", whiteSpace: "nowrap", width: 80 }}>頸線</th>
@@ -1252,8 +1252,11 @@ export default function StockSurge({ onAddToWatchlist }: {
                         <td style={{ padding: "9px 12px", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
                           {s.price.toLocaleString()}
                         </td>
-                        <td style={{ padding: "9px 12px", fontSize: 13, fontWeight: 600, color: "var(--c-up)", fontVariantNumeric: "tabular-nums" }}>
-                          +{s.chg.toFixed(1)}%
+                        <td style={{
+                          padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                          color: s.cap == null ? "var(--c-muted)" : "var(--c-text)",
+                        }}>
+                          {s.cap == null ? "—" : `${s.cap}億`}
                         </td>
                         <td style={{
                           padding: "9px 12px", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums",
