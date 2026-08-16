@@ -14,22 +14,31 @@
   --color-text-dark: #0f172a;
 }
 
-@layer base {
-  body {
-    @apply bg-[family-name:--color-bg-main] text-[family-name:--color-text-main] font-sans antialiased;
-  }
-}
-
 @layer components {
   .sleek-card {
-    @apply bg-white rounded-xl p-6 shadow-sm border border-[family-name:--color-border];
+    @apply bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-[family-name:--color-border];
   }
   
   .sleek-input {
-    @apply w-full px-3 py-2 border border-slate-300 rounded-md text-sm outline-none focus:border-[family-name:--color-primary] focus:ring-2 focus:ring-blue-500/10 transition-all;
+    @apply w-full px-3 py-2.5 sm:py-2 border border-slate-300 rounded-md text-sm outline-none focus:border-[family-name:--color-primary] focus:ring-2 focus:ring-blue-500/10 transition-all;
   }
   
   .sleek-btn {
-    @apply bg-[family-name:--color-primary] text-white px-4 py-2 rounded-md font-semibold text-sm hover:bg-[family-name:--color-primary-hover] transition-colors disabled:opacity-50;
+    @apply bg-[family-name:--color-primary] text-white px-4 py-2.5 sm:py-2 rounded-md font-semibold text-sm hover:bg-[family-name:--color-primary-hover] transition-colors disabled:opacity-50;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-[family-name:--color-bg-main] text-[family-name:--color-text-main] font-sans antialiased;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-width: 0;
   }
 }

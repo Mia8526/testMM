@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Search, 
   TrendingUp, 
@@ -14,7 +14,9 @@ import {
   Download,
   History,
   LayoutDashboard,
-  Flame
+  Flame,
+  Menu,
+  X
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -130,12 +132,15 @@ interface WatchlistItem {
   failedConditions: string[];
 }
 
+type AppTab = 'analysis' | 'watchlist' | 'surge';
+
 export default function App() {
   const [symbol, setSymbol] = useState('');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<StockData | null>(null);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'analysis' | 'watchlist' | 'surge'>('analysis');
+  const [activeTab, setActiveTab] = useState<AppTab>('analysis');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [valuationInputs, setValuationInputs] = useState({
     eps2027: '',
     fairPe: '',
@@ -144,6 +149,27 @@ export default function App() {
     const saved = localStorage.getItem('trendpulse_watchlist');
     return saved ? JSON.parse(saved) : [];
   });
+
+  const switchTab = (tab: AppTab) => {
+    setActiveTab(tab);
+    setMobileNavOpen(false);
+  };
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNavOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileNavOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileNavOpen]);
 
   const updateValuationInput = (key: keyof typeof valuationInputs, value: string) => {
     setValuationInputs(prev => ({ ...prev, [key]: value }));
@@ -206,15 +232,8 @@ export default function App() {
 
   const reAnalyze = (ticker: string) => {
     setSymbol(ticker);
-    setActiveTab('analysis');
-    // We need to trigger the search. Since handleSearch uses the 'symbol' state, 
-    // we'll use a small trick or just call it if we refactor. 
-    // For now, let's just set the symbol and the user can click search, 
-    // or we can trigger it via a useEffect if symbol changes from this specific action.
-    setTimeout(() => {
-      const btn = document.getElementById('search-btn');
-      btn?.click();
-    }, 100);
+    switchTab('analysis');
+    void handleSearch(undefined, ticker);
   };
 
   const exportToCSV = () => {
@@ -261,14 +280,16 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  const handleSearch = async (e?: React.FormEvent) => {
+  const handleSearch = async (e?: React.FormEvent, overrideSymbol?: string) => {
     if (e) e.preventDefault();
-    if (!symbol) return;
+    const query = (overrideSymbol ?? symbol).trim();
+    if (!query) return;
+    if (overrideSymbol) setSymbol(overrideSymbol);
 
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/stock?ticker=${symbol}`);
+      const response = await fetch(`/api/stock?ticker=${encodeURIComponent(query)}`);
       const contentType = response.headers.get("content-type");
       
       if (!response.ok) {
@@ -542,53 +563,369 @@ export default function App() {
   };
 
 
-  return (
-    <div className="flex min-h-screen bg-[#f1f5f9]">
-      {/* Sidebar */}
-      <aside className="w-[280px] bg-white border-r border-[#e2e8f0] p-6 flex flex-col gap-6 shrink-0 fixed h-full">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-6 h-6 bg-[#2563eb] rounded-sm flex items-center justify-center">
-            <TrendingUp className="text-white w-4 h-4" />
+  const tabMeta: Record<AppTab, { label: string; short: string }> = {
+    analysis: { label: '趨勢分析', short: '分析' },
+    watchlist: { label: '觀察日誌', short: '日誌' },
+    surge: { label: '每日強勢股', short: '強勢' },
+  };
+
+  const renderWatchlistActions = (item: WatchlistItem) => (
+    <div className="flex items-center justify-end gap-1">
+      <button
+        onClick={() => reAnalyze(item.symbol)}
+        className="rounded-lg p-2 text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+        title="重新查詢"
+      >
+        <Search className="h-4 w-4" />
+      </button>
+      <button
+        onClick={() => removeFromWatchlist(item.id)}
+        className="rounded-lg p-2 text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500"
+        title="刪除"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
+  const renderWatchlistCards = (highlightSymbol?: string) => (
+    <div className="space-y-3 md:hidden">
+      {watchlist.map((item) => (
+        <div
+          key={item.id}
+          className={cn(
+            "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm",
+            highlightSymbol && item.symbol === highlightSymbol && "border-blue-200 bg-blue-50/50"
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-base font-bold text-slate-900">{item.shortName}</div>
+              <div className="mt-0.5 text-xs text-slate-400">{item.symbol} · {item.date}</div>
+            </div>
+            {renderWatchlistActions(item)}
           </div>
-          <h1 className="font-bold text-lg tracking-tight text-[#0f172a]">TrendPulse TW</h1>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">加入價格</div>
+              <div className="mt-1 text-sm font-semibold text-slate-800">{item.currency} {item.price}</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">風險</div>
+              <div className="mt-1">{renderWatchlistRisk(item)}</div>
+            </div>
+            <div className="col-span-2">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">目前訊號</div>
+              <div className="mt-1">{renderWatchlistSignal(item)}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderWatchlistTable = (highlightSymbol?: string) => (
+    <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-left">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50">
+              <th className="px-4 py-3 text-[12px] font-bold uppercase tracking-wider text-slate-500 lg:px-6 lg:py-4">股票</th>
+              <th className="px-4 py-3 text-[12px] font-bold uppercase tracking-wider text-slate-500 lg:px-6 lg:py-4">加入日期</th>
+              <th className="px-4 py-3 text-[12px] font-bold uppercase tracking-wider text-slate-500 lg:px-6 lg:py-4">加入價格</th>
+              <th className="px-4 py-3 text-[12px] font-bold uppercase tracking-wider text-slate-500 lg:px-6 lg:py-4">目前訊號</th>
+              <th className="px-4 py-3 text-[12px] font-bold uppercase tracking-wider text-slate-500 lg:px-6 lg:py-4">風險</th>
+              <th className="px-4 py-3 text-right text-[12px] font-bold uppercase tracking-wider text-slate-500 lg:px-6 lg:py-4">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {watchlist.map((item) => (
+              <tr
+                key={item.id}
+                className={cn(
+                  "transition-colors hover:bg-slate-50",
+                  highlightSymbol && item.symbol === highlightSymbol && "bg-blue-50/60"
+                )}
+              >
+                <td className="px-4 py-3 lg:px-6 lg:py-4">
+                  <div className="font-bold text-slate-900">{item.shortName}</div>
+                  <div className="text-xs text-slate-400">{item.symbol}</div>
+                </td>
+                <td className="px-4 py-3 text-xs font-medium text-slate-500 lg:px-6 lg:py-4">{item.date}</td>
+                <td className="px-4 py-3 text-sm font-medium text-slate-700 lg:px-6 lg:py-4">{item.currency} {item.price}</td>
+                <td className="px-4 py-3 lg:px-6 lg:py-4">{renderWatchlistSignal(item)}</td>
+                <td className="px-4 py-3 lg:px-6 lg:py-4">{renderWatchlistRisk(item)}</td>
+                <td className="px-4 py-3 text-right lg:px-6 lg:py-4">{renderWatchlistActions(item)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const templateChecklist = (
+    <div className="space-y-4">
+      {data ? (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[12px] font-bold uppercase tracking-wider text-[#64748b]">趨勢模板檢查</h2>
+            <div className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-bold",
+              data.isTemplateMet ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
+            )}>
+              {data.isTemplateMet ? "符合" : "待達標"}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(data.conditions).map(([key, met]) => {
+              const labels: Record<string, string> = {
+                priceAboveMAs: "價格 > 150/200MA",
+                ma150Above200: "150MA > 200MA",
+                ma200Trending: "200MA 向上趨勢",
+                ma50AboveOthers: "50MA > 150/200MA",
+                priceAbove50MA: "價格 > 50MA",
+                aboveLow30: "距離 52W 低點 > 30%",
+                nearHigh25: "距離 52W 高點 < 25%"
+              };
+              return (
+                <div key={key} className="flex items-center justify-between gap-3 text-[11px]">
+                  <span className={cn("font-medium", met ? "text-slate-600" : "text-slate-400")}>
+                    {labels[key] || key}
+                  </span>
+                  {met ? (
+                    <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+                  ) : (
+                    <XCircle className="h-3 w-3 shrink-0 text-rose-300" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-2 text-[11px] leading-relaxed text-[#94a3b8]">
+          <p className="font-bold uppercase tracking-tight">趨勢模板標準</p>
+          <ol className="list-inside list-decimal space-y-1">
+            <li>Price &gt; 150 &amp; 200 MA</li>
+            <li>150 MA &gt; 200 MA</li>
+            <li>200 MA trending up</li>
+            <li>50 MA &gt; 150 &amp; 200 MA</li>
+            <li>Price &gt; 50 MA</li>
+            <li>Price &gt; 52W Low +30%</li>
+            <li>Price within 25% of 52W High</li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+
+  const analysisSearchForm = (
+    <form onSubmit={handleSearch} className="space-y-3">
+      <div className="space-y-2">
+        <label className="text-[13px] font-medium text-[#475569]">股票代碼</label>
+        <input
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          placeholder="e.g. 2330 or NVDA"
+          className="sleek-input"
+          value={symbol}
+          onChange={(e) => setSymbol(e.target.value)}
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={loading}
+        className="sleek-btn flex w-full items-center justify-center gap-2"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : '開始分析'}
+      </button>
+    </form>
+  );
+
+  return (
+    <div className="min-h-screen bg-[#f1f5f9]">
+      {/* Mobile top bar */}
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur md:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#2563eb]">
+              <TrendingUp className="h-4 w-4 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-bold tracking-tight text-[#0f172a]">TrendPulse TW</div>
+              <div className="text-[11px] font-medium text-slate-400">{tabMeta[activeTab].label}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            className="rounded-xl border border-slate-200 p-2 text-slate-600"
+            aria-label="開啟選單"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
+
+        {activeTab === 'analysis' && (
+          <form
+            onSubmit={handleSearch}
+            className="mt-3 flex items-center gap-2"
+          >
+            <input
+              type="text"
+              inputMode="search"
+              enterKeyHint="search"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              placeholder="輸入股票代碼"
+              className="sleek-input min-w-0 flex-1"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="sleek-btn shrink-0 px-3"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </button>
+          </form>
+        )}
+      </header>
+
+      {/* Mobile drawer */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40"
+            aria-label="關閉選單"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <div className="absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-sm bg-[#2563eb]">
+                  <TrendingUp className="h-4 w-4 text-white" />
+                </div>
+                <h1 className="text-base font-bold tracking-tight text-[#0f172a]">TrendPulse TW</h1>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-lg p-2 text-slate-500"
+                aria-label="關閉"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-6 overflow-y-auto p-4">
+              <div className="space-y-2">
+                <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#64748b]">導覽</h2>
+                <nav className="space-y-1">
+                  <button
+                    onClick={() => switchTab('analysis')}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      activeTab === 'analysis' ? "bg-blue-50 text-blue-600" : "text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    <LayoutDashboard className="h-4 w-4" />
+                    趨勢分析
+                  </button>
+                  <button
+                    onClick={() => switchTab('watchlist')}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      activeTab === 'watchlist' ? "bg-blue-50 text-blue-600" : "text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    <History className="h-4 w-4" />
+                    觀察日誌
+                    {watchlist.length > 0 && (
+                      <span className="ml-auto rounded-full bg-blue-100 px-2 py-0.5 text-[10px] text-blue-600">
+                        {watchlist.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => switchTab('surge')}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      activeTab === 'surge' ? "bg-rose-50 text-rose-500" : "text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    <Flame className="h-4 w-4" />
+                    每日強勢股
+                  </button>
+                </nav>
+              </div>
+
+              {activeTab === 'analysis' && (
+                <div className="space-y-3">
+                  <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#64748b]">參數設定</h2>
+                  {analysisSearchForm}
+                </div>
+              )}
+
+              <div className="border-t border-slate-100 pt-4">
+                {templateChecklist}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[280px] shrink-0 flex-col gap-6 border-r border-[#e2e8f0] bg-white p-6 md:flex">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-sm bg-[#2563eb]">
+            <TrendingUp className="h-4 w-4 text-white" />
+          </div>
+          <h1 className="text-lg font-bold tracking-tight text-[#0f172a]">TrendPulse TW</h1>
         </div>
 
         <div className="space-y-4">
-          <h2 className="text-[14px] font-semibold text-[#64748b] uppercase tracking-wider">導覽</h2>
+          <h2 className="text-[14px] font-semibold uppercase tracking-wider text-[#64748b]">導覽</h2>
           <nav className="space-y-1">
-            <button 
-              onClick={() => setActiveTab('analysis')}
+            <button
+              onClick={() => switchTab('analysis')}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 activeTab === 'analysis' ? "bg-blue-50 text-blue-600" : "text-slate-600 hover:bg-slate-50"
               )}
             >
-              <LayoutDashboard className="w-4 h-4" />
+              <LayoutDashboard className="h-4 w-4" />
               趨勢分析
             </button>
-            <button 
-              onClick={() => setActiveTab('watchlist')}
+            <button
+              onClick={() => switchTab('watchlist')}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 activeTab === 'watchlist' ? "bg-blue-50 text-blue-600" : "text-slate-600 hover:bg-slate-50"
               )}
             >
-              <History className="w-4 h-4" />
+              <History className="h-4 w-4" />
               觀察日誌
               {watchlist.length > 0 && (
-                <span className="ml-auto bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-[10px]">
+                <span className="ml-auto rounded-full bg-blue-100 px-2 py-0.5 text-[10px] text-blue-600">
                   {watchlist.length}
                 </span>
               )}
             </button>
             <button
-              onClick={() => setActiveTab('surge')}
+              onClick={() => switchTab('surge')}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 activeTab === 'surge' ? "bg-rose-50 text-rose-500" : "text-slate-600 hover:bg-slate-50"
               )}
             >
-              <Flame className="w-4 h-4" />
+              <Flame className="h-4 w-4" />
               每日強勢股
             </button>
           </nav>
@@ -596,87 +933,19 @@ export default function App() {
 
         {activeTab === 'analysis' && (
           <div className="space-y-4">
-            <h2 className="text-[14px] font-semibold text-[#64748b] uppercase tracking-wider">參數設定</h2>
-            <form onSubmit={handleSearch} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[13px] font-medium text-[#475569]">股票代碼</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 2330 or NVDA"
-                  className="sleek-input"
-                  value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
-                />
-              </div>
-              <button
-                id="search-btn"
-                type="submit"
-                disabled={loading}
-                className="sleek-btn w-full flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : '開始分析'}
-              </button>
-            </form>
+            <h2 className="text-[14px] font-semibold uppercase tracking-wider text-[#64748b]">參數設定</h2>
+            {analysisSearchForm}
           </div>
         )}
 
-        <div className="mt-auto pt-6 border-t border-slate-100 overflow-y-auto">
-          {data ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[12px] font-bold text-[#64748b] uppercase tracking-wider">趨勢模板檢查 (Minervini)</h2>
-                <div className={cn(
-                  "px-2 py-0.5 rounded text-[10px] font-bold",
-                  data.isTemplateMet ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
-                )}>
-                  {data.isTemplateMet ? "符合" : "待達標"}
-                </div>
-              </div>
-              <div className="space-y-2">
-                {Object.entries(data.conditions).map(([key, met]) => {
-                  const labels: Record<string, string> = {
-                    priceAboveMAs: "價格 > 150/200MA",
-                    ma150Above200: "150MA > 200MA",
-                    ma200Trending: "200MA 向上趨勢",
-                    ma50AboveOthers: "50MA > 150/200MA",
-                    priceAbove50MA: "價格 > 50MA",
-                    aboveLow30: "距離 52W 低點 > 30%",
-                    nearHigh25: "距離 52W 高點 < 25%"
-                  };
-                  return (
-                    <div key={key} className="flex items-center justify-between text-[11px]">
-                      <span className={cn("font-medium", met ? "text-slate-600" : "text-slate-400")}>
-                        {labels[key] || key}
-                      </span>
-                      {met ? (
-                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                      ) : (
-                        <XCircle className="w-3 h-3 text-rose-300" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="text-[11px] text-[#94a3b8] space-y-2 leading-relaxed">
-              <p className="font-bold uppercase tracking-tight">趨勢模板標準 (Minervini):</p>
-              <ol className="list-decimal list-inside space-y-1">
-                <li>Price &gt; 150 & 200 MA</li>
-                <li>150 MA &gt; 200 MA</li>
-                <li>200 MA trending up</li>
-                <li>50 MA &gt; 150 & 200 MA</li>
-                <li>Price &gt; 50 MA</li>
-                <li>Price &gt; 52W Low +30%</li>
-                <li>Price within 25% of 52W High</li>
-              </ol>
-            </div>
-          )}
+        <div className="mt-auto overflow-y-auto border-t border-slate-100 pt-6">
+          {templateChecklist}
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 ml-[280px] min-w-0">
+      <main className="min-w-0 md:ml-[280px]">
+        <div className="pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-0">
         <AnimatePresence mode="wait">
           {activeTab === 'surge' ? (
             <motion.div key="surge" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -688,99 +957,57 @@ export default function App() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="space-y-6 p-8"
+              className="space-y-6 p-4 sm:p-6 md:p-8"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-[#0f172a]">觀察日誌</h2>
-                  <p className="text-sm text-slate-500 mt-1">記錄您感興趣的股票及其當時的分析狀態</p>
+                  <p className="mt-1 text-sm text-slate-500">記錄您感興趣的股票及其當時的分析狀態</p>
                 </div>
                 {watchlist.length > 0 && (
-                  <button 
+                  <button
                     onClick={exportToCSV}
-                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                   >
-                    <Download className="w-4 h-4" />
+                    <Download className="h-4 w-4" />
                     匯出 CSV
                   </button>
                 )}
               </div>
 
               {watchlist.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-slate-200 p-20 flex flex-col items-center text-center">
-                  <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-6">
-                    <History className="text-slate-300 w-8 h-8" />
+                <div className="flex flex-col items-center rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center sm:p-20">
+                  <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-50">
+                    <History className="h-8 w-8 text-slate-300" />
                   </div>
                   <h3 className="text-xl font-bold text-slate-900">目前尚無紀錄</h3>
-                  <p className="text-slate-500 mt-2 max-w-xs">
+                  <p className="mt-2 max-w-xs text-slate-500">
                     可以從分析結果或每日強勢股點擊「加入」收藏，之後在這裡追蹤。
                   </p>
                 </div>
               ) : (
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">股票</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入日期</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">加入價格</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">目前訊號</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">風險</th>
-                        <th className="px-6 py-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-right">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {watchlist.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="font-bold text-slate-900">{item.shortName}</div>
-                            <div className="text-xs text-slate-400">{item.symbol}</div>
-                          </td>
-                          <td className="px-6 py-4 text-xs font-medium text-slate-500">{item.date}</td>
-                          <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
-                          <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
-                          <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button 
-                                onClick={() => reAnalyze(item.symbol)}
-                                className="p-2 text-blue-400 hover:text-blue-600 transition-colors"
-                                title="重新查詢"
-                              >
-                                <Search className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => removeFromWatchlist(item.id)}
-                                className="p-2 text-slate-300 hover:text-rose-500 transition-colors"
-                                title="刪除"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  {renderWatchlistCards()}
+                  {renderWatchlistTable()}
+                </>
               )}
             </motion.div>
           ) : (
-            <motion.div key="analysis_view" className="space-y-6 p-8">
+            <motion.div key="analysis_view" className="space-y-6 p-4 sm:p-6 md:p-8">
               {!data && !loading && (
                 <motion.div
                   key="empty"
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="h-full flex flex-col items-center justify-center text-center py-20"
+                  className="flex h-full flex-col items-center justify-center px-2 py-16 text-center sm:py-20"
                 >
-                  <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-6">
-                    <Search className="text-blue-600 w-8 h-8" />
+                  <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50">
+                    <Search className="h-8 w-8 text-blue-600" />
                   </div>
-                  <h2 className="text-3xl font-extrabold text-[#0f172a] mb-3">準備好發掘強勢股了嗎？</h2>
-                  <p className="text-[#64748b] max-w-md">
-                    在左側輸入台股代碼或美股代號，我們將根據 Minervini 的第二階段趨勢模板為您進行深度分析。
+                  <h2 className="mb-3 text-2xl font-extrabold text-[#0f172a] sm:text-3xl">準備好發掘強勢股了嗎？</h2>
+                  <p className="max-w-md text-sm text-[#64748b] sm:text-base">
+                    在上方或左側輸入台股代碼或美股代號，我們將根據 Minervini 的第二階段趨勢模板為您進行深度分析。
                   </p>
                 </motion.div>
               )}
@@ -811,32 +1038,32 @@ export default function App() {
                   className="flex flex-col gap-6"
                 >
                   {/* Header Card */}
-                  <div className="sleek-card order-1 flex flex-col md:flex-row items-end justify-between gap-6">
-                    <div className="space-y-1">
-                      <div className="text-[14px] font-medium uppercase tracking-wider text-[#64748b]">{data.symbol}</div>
-                      <h2 className="text-3xl font-extrabold text-[#0f172a]">{data.shortName}</h2>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Info className={cn("w-4 h-4", data.isTemplateMet ? "text-emerald-500" : "text-amber-500")} />
-                        <span className={cn("text-sm font-medium", data.isTemplateMet ? "text-emerald-600" : "text-amber-600")}>
+                  <div className="sleek-card order-1 flex flex-col gap-4 sm:gap-6 md:flex-row md:items-end md:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-[13px] font-medium uppercase tracking-wider text-[#64748b] sm:text-[14px]">{data.symbol}</div>
+                      <h2 className="break-words text-2xl font-extrabold text-[#0f172a] sm:text-3xl">{data.shortName}</h2>
+                      <div className="mt-2 flex items-start gap-2">
+                        <Info className={cn("mt-0.5 h-4 w-4 shrink-0", data.isTemplateMet ? "text-emerald-500" : "text-amber-500")} />
+                        <span className={cn("text-sm font-medium leading-5", data.isTemplateMet ? "text-emerald-600" : "text-amber-600")}>
                           {data.fundamentalStatus}
                         </span>
                       </div>
                     </div>
-                      <div className="text-right space-y-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => addToWatchlist()}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-[13px] font-semibold text-slate-600 hover:bg-slate-50 transition-colors mr-2"
-                          >
-                            <BookmarkPlus className="w-4 h-4" />
-                            觀察
-                          </button>
-                        </div>
-                        <div className="text-3xl font-bold text-[#0f172a]">
-                          <span className="mb-1 block text-xs font-medium text-slate-400">收盤價</span>
+                    <div className="flex items-end justify-between gap-4 sm:block sm:space-y-3 sm:text-right">
+                      <div className="text-left sm:text-right">
+                        <span className="mb-1 block text-xs font-medium text-slate-400">收盤價</span>
+                        <div className="text-2xl font-bold text-[#0f172a] sm:text-3xl">
                           {data.currency} {data.currentPrice?.toFixed(2) ?? '-'}
                         </div>
                       </div>
+                      <button
+                        onClick={() => addToWatchlist()}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                      >
+                        <BookmarkPlus className="h-4 w-4" />
+                        觀察
+                      </button>
+                    </div>
                   </div>
 
                   {/* MA、Pivot 與箱型合併，避免同一價格重複出現 */}
@@ -854,27 +1081,27 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className={cn("mt-4 grid gap-3", data.rangeBox?.isBoxRange ? "grid-cols-2 md:grid-cols-5" : "grid-cols-2 md:grid-cols-3")}>
+                    <div className={cn("mt-4 grid gap-3", data.rangeBox?.isBoxRange ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-1 sm:grid-cols-3")}>
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                         <div className="text-[11px] font-bold text-slate-500">突破價</div>
-                        <div className="mt-1 text-lg font-black text-blue-700">{data.pivotPrice > 0 ? formatTargetPrice(data.pivotPrice, data.currency) : "—"}</div>
+                        <div className="mt-1 break-all text-base font-black text-blue-700 sm:text-lg">{data.pivotPrice > 0 ? formatTargetPrice(data.pivotPrice, data.currency) : "—"}</div>
                       </div>
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                         <div className="text-[11px] font-bold text-slate-500">進場上限</div>
-                        <div className="mt-1 text-lg font-black text-emerald-700">{data.pivotPrice > 0 && !data.isExtended ? formatTargetPrice(data.buyZoneMax, data.currency) : "—"}</div>
+                        <div className="mt-1 break-all text-base font-black text-emerald-700 sm:text-lg">{data.pivotPrice > 0 && !data.isExtended ? formatTargetPrice(data.buyZoneMax, data.currency) : "—"}</div>
                       </div>
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                         <div className="text-[11px] font-bold text-slate-500">停損參考</div>
-                        <div className="mt-1 text-lg font-black text-rose-700">{data.pivotPrice > 0 && (!data.isExtended || data.isMomentumStock) ? formatTargetPrice(data.suggestedStopLoss, data.currency) : "—"}</div>
+                        <div className="mt-1 break-all text-base font-black text-rose-700 sm:text-lg">{data.pivotPrice > 0 && (!data.isExtended || data.isMomentumStock) ? formatTargetPrice(data.suggestedStopLoss, data.currency) : "—"}</div>
                       </div>
                       {data.rangeBox?.isBoxRange && <>
                         <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                           <div className="text-[11px] font-bold text-slate-500">箱底</div>
-                          <div className="mt-1 text-lg font-black text-emerald-700">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
+                          <div className="mt-1 break-all text-base font-black text-emerald-700 sm:text-lg">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
                         </div>
                         <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                           <div className="text-[11px] font-bold text-slate-500">箱頂</div>
-                          <div className="mt-1 text-lg font-black text-amber-700">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
+                          <div className="mt-1 break-all text-base font-black text-amber-700 sm:text-lg">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
                         </div>
                       </>}
                     </div>
@@ -1060,9 +1287,9 @@ export default function App() {
                       </div>
                     </div>
                     
-                    <div className="h-[300px] w-full bg-[#f8fafc] rounded-lg border border-[#e2e8f0] p-4">
+                    <div className="h-[240px] w-full rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2 sm:h-[300px] sm:p-4">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data.chartData}>
+                        <LineChart data={data.chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                           <XAxis dataKey="date" hide />
                           <YAxis 
@@ -1147,56 +1374,20 @@ export default function App() {
                   {/* 保留在分析頁底部，方便直接切換觀察中的股票 */}
                   {watchlist.length > 0 && (
                     <div className="order-5 space-y-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <h3 className="text-lg font-bold text-[#0f172a]">觀察日誌</h3>
                           <p className="mt-1 text-xs text-slate-500">點放大鏡可直接切換並重新分析股票。</p>
                         </div>
                         <button
-                          onClick={() => setActiveTab('watchlist')}
+                          onClick={() => switchTab('watchlist')}
                           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
                         >
                           開啟完整日誌
                         </button>
                       </div>
-                      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                        <table className="w-full border-collapse text-left">
-                          <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50">
-                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">股票</th>
-                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">加入日期</th>
-                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">加入價格</th>
-                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">目前訊號</th>
-                              <th className="px-6 py-4 text-[12px] font-bold uppercase tracking-wider text-slate-500">風險</th>
-                              <th className="px-6 py-4 text-right text-[12px] font-bold uppercase tracking-wider text-slate-500">操作</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {watchlist.map((item) => (
-                              <tr key={item.id} className={cn("transition-colors hover:bg-slate-50", item.symbol === data.symbol && "bg-blue-50/60")}>
-                                <td className="px-6 py-4">
-                                  <div className="font-bold text-slate-900">{item.shortName}</div>
-                                  <div className="text-xs text-slate-400">{item.symbol}</div>
-                                </td>
-                                <td className="px-6 py-4 text-xs font-medium text-slate-500">{item.date}</td>
-                                <td className="px-6 py-4 text-sm font-medium text-slate-700">{item.currency} {item.price}</td>
-                                <td className="px-6 py-4">{renderWatchlistSignal(item)}</td>
-                                <td className="px-6 py-4">{renderWatchlistRisk(item)}</td>
-                                <td className="px-6 py-4 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button onClick={() => reAnalyze(item.symbol)} className="p-2 text-blue-400 transition-colors hover:text-blue-600" title={`切換並分析 ${item.shortName}`}>
-                                      <Search className="h-4 w-4" />
-                                    </button>
-                                    <button onClick={() => removeFromWatchlist(item.id)} className="p-2 text-slate-300 transition-colors hover:text-rose-500" title="刪除">
-                                      <Trash2 className="h-4 w-4" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      {renderWatchlistCards(data.symbol)}
+                      {renderWatchlistTable(data.symbol)}
                     </div>
                   )}
 
@@ -1205,7 +1396,45 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </main>
+
+      {/* Mobile bottom navigation */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur md:hidden">
+        <div className="grid grid-cols-3 gap-1">
+          {([
+            { key: 'analysis' as const, icon: LayoutDashboard, label: tabMeta.analysis.short },
+            { key: 'surge' as const, icon: Flame, label: tabMeta.surge.short },
+            { key: 'watchlist' as const, icon: History, label: tabMeta.watchlist.short },
+          ]).map((item) => {
+            const active = activeTab === item.key;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => switchTab(item.key)}
+                className={cn(
+                  "relative flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-bold transition-colors",
+                  active
+                    ? item.key === 'surge'
+                      ? "bg-rose-50 text-rose-600"
+                      : "bg-blue-50 text-blue-600"
+                    : "text-slate-500"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{item.label}</span>
+                {item.key === 'watchlist' && watchlist.length > 0 && (
+                  <span className="absolute right-3 top-1 rounded-full bg-blue-100 px-1.5 text-[9px] font-bold text-blue-600">
+                    {watchlist.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

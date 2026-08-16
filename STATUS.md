@@ -22,4 +22,5 @@
 - 2026-08-15: Reworked Daily Surge into three action tabs: `今日試單` / `等突破` / `別追`. Each row shows a trigger price and plain-language action (e.g. first big up day = small probe; extended = don't chase; recovery structure = wait for breakout/retest price). Cache bumped to v10.
 - 2026-08-15: Daily Surge now only shows `隔日可試` / `別追`. Try-next requires neckline break + volume surge + gap-up; UI stripped to numbers only (gap / vol ratio / neckline). Cache v11.
 - 2026-08-17: Daily Surge 列表欄位「漲幅」改為「股本」（顯示實收資本額，單位億；可排序）。
-- Latest verification: `node --test src/lib/julyRecovery.test.ts src/lib/rangeBox.test.ts`, `pnpm run lint`, `pnpm run build` passed.
+- 2026-08-17: Mobile-responsive shell for all pages: sticky top bar + drawer + bottom nav on phone; watchlist/surge card layouts; analysis spacing/chart/key-level grids tightened for small screens.
+- Latest verification: `node --test src/lib/julyRecovery.test.ts src/lib/rangeBox.test.ts`, `pnpm run lint`, `pnpm run build` passed after mobile responsive shell.

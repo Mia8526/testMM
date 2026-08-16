@@ -1071,9 +1071,15 @@ export default function StockSurge({ onAddToWatchlist }: {
       --c-amber: #f59e0b;
       --c-blue: #60a5fa;
     }
-    .stock-surge table { border-collapse: collapse; width: 100%; }
+    .stock-surge table { border-collapse: collapse; width: 100%; min-width: 640px; }
     .stock-surge tbody tr:hover { background: rgba(255,255,255,0.03) !important; }
     .stock-surge .spin { animation: spin 1s linear infinite; }
+    .stock-surge .desktop-table { display: none; }
+    .stock-surge .mobile-cards { display: grid; gap: 10px; }
+    @media (min-width: 768px) {
+      .stock-surge .desktop-table { display: block; }
+      .stock-surge .mobile-cards { display: none; }
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
   `;
 
@@ -1084,7 +1090,7 @@ export default function StockSurge({ onAddToWatchlist }: {
       className="stock-surge"
       style={{
         minHeight: "100vh",
-        padding: "24px 16px",
+        padding: "16px 12px 28px",
         background: "var(--c-bg)",
         color: "var(--c-text)",
         fontFamily: "'IBM Plex Sans TC', 'Noto Sans TC', 'PingFang TC', sans-serif",
@@ -1093,18 +1099,18 @@ export default function StockSurge({ onAddToWatchlist }: {
       <style>{cssVars}</style>
 
       {/* ── 標頭 ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <div style={{
-            width: 38, height: 38, borderRadius: 10,
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
             background: "rgba(240,92,92,0.15)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <TrendingUp size={18} color="var(--c-up)" />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "0.02em" }}>每日強勢股追蹤</div>
-            <div style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 2, lineHeight: 1.45 }}>
               {dataDate ? `資料日期：${dataDate}` : "載入中..."} · 上市＋上櫃 · 漲幅 &gt;5%
               {cacheSavedAt ? ` · ${usingCache ? "暫存" : "更新"}：${formatCacheTime(cacheSavedAt)}` : ""}
             </div>
@@ -1115,7 +1121,7 @@ export default function StockSurge({ onAddToWatchlist }: {
           disabled={status === "loading"}
           style={{
             display: "flex", alignItems: "center", gap: 6,
-            padding: "7px 16px", borderRadius: 8, fontSize: 13, cursor: "pointer",
+            padding: "8px 14px", borderRadius: 8, fontSize: 13, cursor: "pointer",
             background: "var(--c-surface)", border: "1px solid var(--c-border)",
             color: "var(--c-text)", opacity: status === "loading" ? 0.5 : 1,
           }}
@@ -1208,7 +1214,96 @@ export default function StockSurge({ onAddToWatchlist }: {
             border: "1px solid var(--c-border)", borderRadius: 12,
             overflow: "hidden", marginBottom: 24,
           }}>
-            <div style={{ overflowX: "auto" }}>
+            <div className="mobile-cards" style={{ padding: 10 }}>
+              {sorted.map((s) => {
+                const label = getActionLabel(s);
+                const neck = necklineOf(s);
+                return (
+                  <div
+                    key={`m-${s.code}-${s.market}`}
+                    style={{
+                      border: "1px solid var(--c-border)",
+                      borderRadius: 12,
+                      background: "var(--c-surface)",
+                      padding: "12px 12px 10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{s.code}</span>
+                          <span style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</span>
+                          <ActionBadge label={label} />
+                          {s.disposition && (
+                            <RiskBadge type="disposition" title={s.flagPeriod ? `處置期間：${s.flagPeriod}` : s.flagReason} />
+                          )}
+                          {!s.disposition && s.attention && (
+                            <RiskBadge type="attention" title={s.flagReason} />
+                          )}
+                        </div>
+                        <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                          {s.price.toLocaleString()}
+                        </div>
+                      </div>
+                      {onAddToWatchlist && (
+                        <button
+                          onClick={() => handleAddToWatchlist(s)}
+                          title="加入"
+                          style={{
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            width: 34, height: 34, borderRadius: 8, cursor: "pointer", flexShrink: 0,
+                            border: addedCodes.has(s.code) ? "1px solid var(--c-dn)" : "1px solid var(--c-border)",
+                            background: addedCodes.has(s.code) ? "rgba(43,189,142,0.12)" : "var(--c-surface2)",
+                            color: addedCodes.has(s.code) ? "var(--c-dn)" : "var(--c-muted)",
+                          }}
+                        >
+                          {addedCodes.has(s.code) ? <Check size={14} /> : <BookmarkPlus size={14} />}
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{
+                      marginTop: 12,
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                      gap: 8,
+                    }}>
+                      {[
+                        { label: "股本", value: s.cap == null ? "—" : `${s.cap}億`, color: "var(--c-text)" },
+                        {
+                          label: "跳空",
+                          value: s.gapPct == null ? "—" : `${s.gapPct >= 0 ? "+" : ""}${s.gapPct}%`,
+                          color: s.gapPct == null ? "var(--c-muted)" : s.gapPct >= MIN_GAP_PCT ? "var(--c-up)" : "var(--c-muted)",
+                        },
+                        {
+                          label: "量比",
+                          value: s.volRatio == null ? "—" : `${s.volRatio}x`,
+                          color: s.volRatio == null ? "var(--c-muted)" : s.volRatio >= MIN_VOL_RATIO ? "var(--c-up)" : "var(--c-muted)",
+                        },
+                        { label: "頸線", value: neck != null ? fmtPrice(neck) : "—", color: "var(--c-text)" },
+                      ].map((cell) => (
+                        <div
+                          key={cell.label}
+                          style={{
+                            borderRadius: 8,
+                            background: "var(--c-surface2)",
+                            padding: "8px 6px",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 10, color: "var(--c-muted)", marginBottom: 4 }}>{cell.label}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: cell.color }}>
+                            {cell.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="desktop-table" style={{ overflowX: "auto" }}>
               <table>
                 <thead>
                   <tr style={{ background: "var(--c-surface2)", borderBottom: "1px solid var(--c-border)" }}>
