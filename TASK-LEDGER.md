@@ -149,3 +149,10 @@
 - [x] Pivot固定紅色長虛線；箱頂／箱底改為灰色長虛線，避免與均線混色。
 - [x] 移除未實際繪製的52週高點圖例，並將圖例分行顯示。
 - [x] VCP與Pivot價差在1.5%以內時只顯示Pivot，避免水平線與標籤重疊。
+
+## 2026-08-17 — 台股名稱改中文（保留美股英文）
+
+- [x] Repro：趨勢分析查 `6265.TWO` 顯示 `KUEN CHAANG UPPERTECH CORP`。
+- [x] 根因：上櫃中文名稱對照表冷啟動偏慢，timeout 後 fallback 到 Yahoo 英文名。
+- [x] 修正：上市/上櫃優先抓中文短名（日報表 + 公司表 + TWSE MIS 單檔查詢，誰先回中文用誰）；`pickDisplayName` 有中文就不用英文；美股維持 provider 英文名。
+- [x] 驗證：`pnpm run lint`、`pnpm run build`、既有 unit tests。

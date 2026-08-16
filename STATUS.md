@@ -23,4 +23,5 @@
 - 2026-08-15: Daily Surge now only shows `隔日可試` / `別追`. Try-next requires neckline break + volume surge + gap-up; UI stripped to numbers only (gap / vol ratio / neckline). Cache v11.
 - 2026-08-17: Daily Surge 列表欄位「漲幅」改為「股本」（顯示實收資本額，單位億；可排序）。
 - 2026-08-17: Mobile-responsive shell for all pages: sticky top bar + drawer + bottom nav on phone; watchlist/surge card layouts; analysis spacing/chart/key-level grids tightened for small screens.
-- Latest verification: `node --test src/lib/julyRecovery.test.ts src/lib/rangeBox.test.ts`, `pnpm run lint`, `pnpm run build` passed after mobile responsive shell.
+- 2026-08-17: Taiwan stock display names prefer Chinese short names (exchange map + TWSE MIS), while US tickers keep English provider names.
+- Latest verification: `pnpm run lint`, `pnpm run build`, `node --test src/lib/julyRecovery.test.ts src/lib/rangeBox.test.ts` passed after Taiwan Chinese short-name fix.

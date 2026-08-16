@@ -274,16 +274,58 @@ async function getExchangeValuation(code: string, marketType: string): Promise<E
   return null;
 }
 
+function hasCjk(text: string): boolean {
+  return /[\u3400-\u9FFF]/.test(text);
+}
+
+function normalizeCompanyName(raw: string): string {
+  return String(raw || '')
+    .replace(/股份有限公司$/u, '')
+    .replace(/有限公司$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Prefer Chinese short names for TW stocks; keep English for US / non-CJK names. */
+function pickDisplayName(...candidates: Array<string | null | undefined>): string | null {
+  const cleaned = candidates
+    .map((c) => (c == null ? '' : normalizeCompanyName(String(c))))
+    .filter(Boolean);
+  const cjk = cleaned.find(hasCjk);
+  if (cjk) return cjk;
+  return cleaned[0] || null;
+}
+
+function rememberTaiwanName(code: string, marketType: string, name: string | null | undefined) {
+  const cleaned = name ? normalizeCompanyName(name) : '';
+  if (!code || !cleaned || !hasCjk(cleaned)) return;
+  if (marketType === '上櫃') {
+    if (otcNameMapCache) otcNameMapCache[code] = cleaned;
+  } else if (listedNameMapCache) {
+    listedNameMapCache[code] = cleaned;
+  }
+}
+
 async function getListedNameMap(): Promise<Record<string, string>> {
   if (listedNameMapCache) return listedNameMapCache;
   if (!listedNameMapPromise) {
     listedNameMapPromise = (async () => {
-      const listed = await fetchJsonArray('https://openapi.twse.com.tw/v1/opendata/t187ap03_L');
+      // STOCK_DAY_ALL is usually the fastest Chinese short-name source.
+      const [dayAll, listed] = await Promise.all([
+        fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
+        fetchJsonArray('https://openapi.twse.com.tw/v1/opendata/t187ap03_L'),
+      ]);
       const map: Record<string, string> = {};
+
+      for (const row of dayAll) {
+        const rowCode = String(row.Code ?? row['證券代號'] ?? '').trim();
+        const name = normalizeCompanyName(String(row.Name ?? row['證券名稱'] ?? ''));
+        if (rowCode && name) map[rowCode] = name;
+      }
 
       for (const row of listed) {
         const rowCode = String(row['公司代號'] ?? '').trim();
-        const name = String(row['公司簡稱'] ?? '').trim();
+        const name = normalizeCompanyName(String(row['公司簡稱'] ?? ''));
         if (rowCode && name) map[rowCode] = name;
       }
 
@@ -300,26 +342,28 @@ async function getOtcNameMap(): Promise<Record<string, string>> {
   if (otcNameMapCache) return otcNameMapCache;
   if (!otcNameMapPromise) {
     otcNameMapPromise = (async () => {
-      const [otc, otcDaily] = await Promise.all([
-        fetchJsonArray('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O'),
+      const [otcDaily, otc] = await Promise.all([
+        // Daily close quotes usually return Chinese short names faster than the full company list.
         fetchJsonArray('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'),
+        fetchJsonArray('https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O'),
       ]);
       const map: Record<string, string> = {};
 
-      for (const row of otc) {
-        const rowCode = String(row.SecuritiesCompanyCode ?? row['公司代號'] ?? '').trim();
-        const rawName = String(row.CompanyAbbreviation ?? row.CompanyName ?? row['公司簡稱'] ?? '').trim();
-        const name = rawName
-          .replace(/股份有限公司$/, '')
-          .replace(/有限公司$/, '')
-          .trim();
+      for (const row of otcDaily) {
+        const rowCode = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
+        const name = normalizeCompanyName(String(row.CompanyName ?? row.Name ?? row['證券名稱'] ?? ''));
         if (rowCode && name) map[rowCode] = name;
       }
 
-      for (const row of otcDaily) {
-        const rowCode = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
-        const name = String(row.CompanyName ?? row.Name ?? '').trim();
-        if (rowCode && name && !map[rowCode]) map[rowCode] = name;
+      for (const row of otc) {
+        const rowCode = String(row.SecuritiesCompanyCode ?? row['公司代號'] ?? '').trim();
+        const name = normalizeCompanyName(String(
+          row.CompanyAbbreviation ?? row.CompanyName ?? row['公司簡稱'] ?? ''
+        ));
+        // Prefer already-seen short names; only fill gaps / upgrade to CJK.
+        if (rowCode && name && (!map[rowCode] || (!hasCjk(map[rowCode]) && hasCjk(name)))) {
+          map[rowCode] = name;
+        }
       }
 
       otcNameMapCache = map;
@@ -331,12 +375,59 @@ async function getOtcNameMap(): Promise<Record<string, string>> {
   return otcNameMapPromise;
 }
 
-async function getTaiwanShortName(code: string, marketType: string): Promise<string | null> {
-  const map = marketType === '上櫃'
-    ? await getOtcNameMap()
-    : await getListedNameMap();
+/** Single-stock Chinese name via TWSE MIS (works for both listed + OTC). */
+async function fetchTwseMisName(code: string, marketType: string): Promise<string | null> {
+  const channels = marketType === '上櫃'
+    ? [`otc_${code}.tw`, `tse_${code}.tw`]
+    : [`tse_${code}.tw`, `otc_${code}.tw`];
 
-  return map[code] ?? null;
+  try {
+    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(channels.join('|'))}&json=1&delay=0&_=${Date.now()}`;
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+        'Referer': 'https://mis.twse.com.tw/stock/fibest.jsp',
+      },
+    });
+    if (!r.ok) return null;
+    const data: any = await r.json();
+    const rows = Array.isArray(data?.msgArray) ? data.msgArray : [];
+    for (const row of rows) {
+      const name = normalizeCompanyName(String(row?.n ?? row?.nf ?? ''));
+      if (name && hasCjk(name)) return name;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+async function getTaiwanShortName(code: string, marketType: string): Promise<string | null> {
+  const mapPromise = (marketType === '上櫃' ? getOtcNameMap() : getListedNameMap())
+    .then((map) => map[code] ?? null)
+    .catch(() => null);
+  const misPromise = fetchTwseMisName(code, marketType);
+
+  // Take the first Chinese hit so cold-start does not wait for the slower full map.
+  try {
+    const chinese = await Promise.any([
+      mapPromise.then((n) => {
+        if (n && hasCjk(n)) return n;
+        throw new Error('no-cjk-map');
+      }),
+      misPromise.then((n) => {
+        if (n && hasCjk(n)) return n;
+        throw new Error('no-cjk-mis');
+      }),
+    ]);
+    rememberTaiwanName(code, marketType, chinese);
+    return chinese;
+  } catch {
+    const fallback = pickDisplayName(await mapPromise, await misPromise);
+    rememberTaiwanName(code, marketType, fallback);
+    return fallback;
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -350,10 +441,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 async function getTaiwanShortNameFast(code: string, marketType: string): Promise<string | null> {
-  // The displayed name is user-facing. Give the exchange name map a little
-  // more time than suffix detection so OTC stocks do not fall back to Yahoo's
-  // English company names on cold start.
-  return withTimeout(getTaiwanShortName(code, marketType), 2000, null);
+  // Displayed names are user-facing. Give exchange + MIS enough time on cold
+  // start so OTC names do not fall back to Yahoo English.
+  return withTimeout(getTaiwanShortName(code, marketType), 3500, null);
 }
 
 async function inferTaiwanSuffix(code: string): Promise<'TW' | 'TWO' | null> {
@@ -577,17 +667,27 @@ async function startServer(): Promise<void> {
 
       result = fetchResult.historical;
       
-      // Name Logic: Taiwan stocks -> Chinese, US stocks -> English
+      // Name Logic: Taiwan stocks prefer Chinese; US / other keep provider English names.
       if (marketType === '上市' || marketType === '上櫃') {
         const pureCode = symbol.split('.')[0];
-        shortName = await getTaiwanShortNameFast(pureCode, marketType)
-          || fetchResult?.quote?.displayName
-          || fetchResult?.quote?.shortName
-          || fetchResult?.quote?.longName
-          || symbol;
+        const twName = await getTaiwanShortNameFast(pureCode, marketType);
+        shortName = pickDisplayName(
+          twName,
+          fetchResult?.quote?.displayName,
+          fetchResult?.quote?.shortName,
+          fetchResult?.quote?.longName,
+          pureCode,
+          symbol,
+        ) || symbol;
+        rememberTaiwanName(pureCode, marketType, shortName);
       } else {
-        // For US stocks, shortName/longName are naturally English
-        shortName = fetchResult?.quote?.shortName || fetchResult?.quote?.longName || symbol;
+        // US / HK / etc.: keep English (or whatever the provider returns)
+        shortName = pickDisplayName(
+          fetchResult?.quote?.shortName,
+          fetchResult?.quote?.displayName,
+          fetchResult?.quote?.longName,
+          symbol,
+        ) || symbol;
       }
 
       // Sort by date ascending
