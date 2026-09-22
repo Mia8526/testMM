@@ -44,3 +44,28 @@ test('wide consolidation is labelled separately from a standard box', () => {
   assert.equal(result.quality, 'wide');
   assert.match(result.status, /寬幅整理/);
 });
+
+test('isolated crash low is not used as current box floor (1717-style)', () => {
+  const out: OhlcBar[] = [];
+  // Older crash: single spike low ~53, then leave it
+  for (let i = 0; i < 20; i++) {
+    out.push({ date: `2026-07-${String(i + 1).padStart(2, '0')}`, high: 62, low: 58, close: 60, volume: 1000 });
+  }
+  out[10] = { date: '2026-07-11', high: 55, low: 52.8, close: 53.5, volume: 5000 }; // isolated crash
+  // Recent tighter consolidation ~69-79
+  for (let i = 0; i < 30; i++) {
+    const close = 74 + (i % 6 - 2.5) * 1.2;
+    out.push({
+      date: `2026-08-${String(i + 1).padStart(2, '0')}`,
+      high: i % 4 === 0 ? 79 : close + 1.5,
+      low: i % 4 === 2 ? 69.2 : close - 1.5,
+      close,
+      volume: 1200,
+    });
+  }
+  const result = detectRangeBox(out, 75.8);
+  assert.equal(result.isBoxRange, true);
+  assert.ok(result.lower! >= 65, `lower should not be crash low, got ${result.lower}`);
+  assert.ok(result.upper! <= 82, `upper=${result.upper}`);
+  assert.equal(result.quality, 'standard');
+});

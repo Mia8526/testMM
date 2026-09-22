@@ -14,7 +14,6 @@ import {
   Download,
   History,
   LayoutDashboard,
-  Flame,
   Menu,
   X
 } from 'lucide-react';
@@ -32,7 +31,6 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
-import StockSurge from './lib/StockSurge';
 import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
@@ -75,6 +73,9 @@ interface StockData {
   baseLabel: string;
   rangeBox: RangeBox;
   pivotPrice: number;
+  resistancePrice?: number;
+  pivotRole?: 'breakout' | 'resistance' | 'none';
+  pullbackPercentage?: string;
   buyZoneMax: number;
   suggestedStopLoss: number;
   priceGap: number;
@@ -108,23 +109,10 @@ interface StockData {
 interface WatchlistItem {
   id: string;
   date: string;
-  source?: 'analysis' | 'surge';
   symbol: string;
   shortName: string;
   price: number;
   currency: string;
-  market?: string;
-  industry?: string;
-  todayChange?: number | null;
-  c14?: number | null;
-  vol5?: number | null;
-  vol14?: number | null;
-  amount?: number | null;
-  surgeMode?: string;
-  attention?: boolean;
-  disposition?: boolean;
-  flagReason?: string;
-  flagPeriod?: string;
   pivotPrice: number;
   suggestedStopLoss: number;
   ma50Extension: string;
@@ -132,7 +120,7 @@ interface WatchlistItem {
   failedConditions: string[];
 }
 
-type AppTab = 'analysis' | 'watchlist' | 'surge';
+type AppTab = 'analysis' | 'watchlist';
 
 export default function App() {
   const [symbol, setSymbol] = useState('');
@@ -211,7 +199,6 @@ export default function App() {
     const newItem: WatchlistItem = {
       id: Date.now().toString(),
       date: new Date().toLocaleString('zh-TW', { hour12: false }),
-      source: 'analysis',
       symbol: data.symbol,
       shortName: data.shortName,
       price: data.currentPrice,
@@ -239,25 +226,12 @@ export default function App() {
   const exportToCSV = () => {
     if (watchlist.length === 0) return;
     
-    const headers = ["紀錄時間", "來源", "代號", "名稱", "當前價格", "市場/產業", "強勢資訊", "成交金額", "風險標籤", "突破買點", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
+    const headers = ["紀錄時間", "代號", "名稱", "當前價格", "突破買點", "建議停損", "50MA 乖離率", "警示文字", "未通過條件"];
     const rows = watchlist.map(item => [
       item.date,
-      item.source === 'surge' ? `每日強勢股${item.surgeMode ? `-${item.surgeMode}` : ''}` : '趨勢分析',
       item.symbol,
       item.shortName,
       `${item.currency} ${item.price}`,
-      item.source === 'surge' ? `${item.market ?? '-'} / ${item.industry ?? '-'}` : '-',
-      item.source === 'surge'
-        ? `今日 ${formatPct(item.todayChange)}; 14日 ${formatPct(item.c14)}; 5日量 ${formatPct(item.vol5)}; 14日量 ${formatPct(item.vol14)}`
-        : '-',
-      item.source === 'surge' ? formatAmount(item.amount) : '-',
-      item.source === 'surge'
-        ? [
-            item.disposition ? '處置' : '',
-            item.attention ? '注意' : '',
-            item.flagPeriod ? `期間 ${item.flagPeriod}` : ''
-          ].filter(Boolean).join('; ') || '-'
-        : '-',
       item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "尚未形成平台",
       item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-",
       `${item.ma50Extension}%`,
@@ -360,17 +334,6 @@ export default function App() {
     };
   };
 
-  const formatPct = (value?: number | null) => {
-    if (value === null || value === undefined || !Number.isFinite(value)) return "-";
-    return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
-  };
-
-  const formatAmount = (value?: number | null) => {
-    if (value === null || value === undefined || value <= 0 || !Number.isFinite(value)) return "-";
-    if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}億`;
-    return `${Math.round(value / 10_000).toLocaleString()}萬`;
-  };
-
   const parseInputNumber = (value: string) => {
     const cleaned = value.replace(/,/g, '').trim();
     if (!cleaned) return null;
@@ -462,91 +425,24 @@ export default function App() {
     };
   };
 
-  const isSurgeItem = (item: WatchlistItem) => item.source === 'surge';
+  const renderWatchlistSetup = (item: WatchlistItem) => (
+    <span className="text-sm font-bold text-slate-900">
+      {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
+    </span>
+  );
 
-  const renderWatchlistSetup = (item: WatchlistItem) => {
-    if (isSurgeItem(item)) {
-      return (
-        <div className="space-y-1">
-          <div className="text-sm font-bold text-rose-600">今日 {formatPct(item.todayChange)}</div>
-          <div className="text-[11px] text-slate-500">14日 {formatPct(item.c14)}</div>
-          <div className="text-[11px] text-slate-500">成交 {formatAmount(item.amount)}</div>
-        </div>
-      );
-    }
-
-    return (
-      <span className="text-sm font-bold text-slate-900">
-        {item.pivotPrice > 0 ? `${item.currency} ${item.pivotPrice.toFixed(2)}` : "-"}
-      </span>
-    );
-  };
-
-  const renderWatchlistRisk = (item: WatchlistItem) => {
-    if (isSurgeItem(item)) {
-      if (item.disposition) return <span className="rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">處置</span>;
-      if (item.attention) return <span className="rounded bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">注意</span>;
-      if (item.surgeMode?.includes("過熱")) return <span className="rounded bg-rose-50 px-2 py-1 text-xs font-bold text-rose-600">不追高</span>;
-      return <span className="text-xs font-medium text-slate-400">一般</span>;
-    }
-
-    return (
-      <span className="text-sm font-bold text-rose-600">
-        {item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-"}
-      </span>
-    );
-  };
+  const renderWatchlistRisk = (item: WatchlistItem) => (
+    <span className="text-sm font-bold text-rose-600">
+      {item.suggestedStopLoss > 0 ? `${item.currency} ${item.suggestedStopLoss.toFixed(2)}` : "-"}
+    </span>
+  );
 
   const renderWatchlistSignal = (item: WatchlistItem) => {
-    if (isSurgeItem(item)) {
-      return (
-        <div className="space-y-1">
-          {item.surgeMode && (
-            <span className="inline-flex rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{item.surgeMode}</span>
-          )}
-          <div className="text-[11px] font-semibold text-rose-600">今日 {formatPct(item.todayChange)}</div>
-        </div>
-      );
-    }
-
     const ext = parseFloat(item.ma50Extension);
     return <span className={cn("text-xs font-bold", getExtensionAlert(ext).color)}>{item.extensionText}</span>;
   };
 
   const renderWatchlistConditions = (item: WatchlistItem) => {
-    if (isSurgeItem(item)) {
-      return (
-        <div className="flex flex-wrap gap-1">
-          {item.disposition && (
-            <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-bold">
-              處置
-            </span>
-          )}
-          {!item.disposition && item.attention && (
-            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold">
-              注意
-            </span>
-          )}
-          <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded font-medium">
-            漲幅 {formatPct(item.todayChange)}
-          </span>
-          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
-            成交 {formatAmount(item.amount)}
-          </span>
-          {item.c14 !== null && item.c14 !== undefined && (
-            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
-              14日 {formatPct(item.c14)}
-            </span>
-          )}
-          {item.vol5 !== null && item.vol5 !== undefined && (
-            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
-              5日量 {formatPct(item.vol5)}
-            </span>
-          )}
-        </div>
-      );
-    }
-
     const failedConditions = item.failedConditions ?? [];
 
     return failedConditions.length === 0 ? (
@@ -562,11 +458,9 @@ export default function App() {
     );
   };
 
-
   const tabMeta: Record<AppTab, { label: string; short: string }> = {
     analysis: { label: '趨勢分析', short: '分析' },
     watchlist: { label: '觀察日誌', short: '日誌' },
-    surge: { label: '每日強勢股', short: '強勢' },
   };
 
   const renderWatchlistActions = (item: WatchlistItem) => (
@@ -853,16 +747,6 @@ export default function App() {
                       </span>
                     )}
                   </button>
-                  <button
-                    onClick={() => switchTab('surge')}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                      activeTab === 'surge' ? "bg-rose-50 text-rose-500" : "text-slate-600 hover:bg-slate-50"
-                    )}
-                  >
-                    <Flame className="h-4 w-4" />
-                    每日強勢股
-                  </button>
                 </nav>
               </div>
 
@@ -918,16 +802,6 @@ export default function App() {
                 </span>
               )}
             </button>
-            <button
-              onClick={() => switchTab('surge')}
-              className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                activeTab === 'surge' ? "bg-rose-50 text-rose-500" : "text-slate-600 hover:bg-slate-50"
-              )}
-            >
-              <Flame className="h-4 w-4" />
-              每日強勢股
-            </button>
           </nav>
         </div>
 
@@ -947,11 +821,7 @@ export default function App() {
       <main className="min-w-0 md:ml-[280px]">
         <div className="pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-0">
         <AnimatePresence mode="wait">
-          {activeTab === 'surge' ? (
-            <motion.div key="surge" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <StockSurge onAddToWatchlist={addToWatchlist} />
-            </motion.div>
-          ) : activeTab === 'watchlist' ? (
+          {activeTab === 'watchlist' ? (
             <motion.div
               key="watchlist"
               initial={{ opacity: 0, y: 10 }}
@@ -982,7 +852,7 @@ export default function App() {
                   </div>
                   <h3 className="text-xl font-bold text-slate-900">目前尚無紀錄</h3>
                   <p className="mt-2 max-w-xs text-slate-500">
-                    可以從分析結果或每日強勢股點擊「加入」收藏，之後在這裡追蹤。
+                    可以從趨勢分析結果點擊「加入」收藏，之後在這裡追蹤。
                   </p>
                 </div>
               ) : (
@@ -1005,7 +875,7 @@ export default function App() {
                   <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50">
                     <Search className="h-8 w-8 text-blue-600" />
                   </div>
-                  <h2 className="mb-3 text-2xl font-extrabold text-[#0f172a] sm:text-3xl">準備好發掘強勢股了嗎？</h2>
+                  <h2 className="mb-3 text-2xl font-extrabold text-[#0f172a] sm:text-3xl">準備好開始趨勢分析了嗎？</h2>
                   <p className="max-w-md text-sm text-[#64748b] sm:text-base">
                     在上方或左側輸入台股代碼或美股代號，我們將根據 Minervini 的第二階段趨勢模板為您進行深度分析。
                   </p>
@@ -1081,40 +951,62 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className={cn("mt-4 grid gap-3", data.rangeBox?.isBoxRange ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-1 sm:grid-cols-3")}>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                        <div className="text-[11px] font-bold text-slate-500">突破價</div>
-                        <div className="mt-1 break-all text-base font-black text-blue-700 sm:text-lg">{data.pivotPrice > 0 ? formatTargetPrice(data.pivotPrice, data.currency) : "—"}</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                        <div className="text-[11px] font-bold text-slate-500">進場上限</div>
-                        <div className="mt-1 break-all text-base font-black text-emerald-700 sm:text-lg">{data.pivotPrice > 0 && !data.isExtended ? formatTargetPrice(data.buyZoneMax, data.currency) : "—"}</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                        <div className="text-[11px] font-bold text-slate-500">停損參考</div>
-                        <div className="mt-1 break-all text-base font-black text-rose-700 sm:text-lg">{data.pivotPrice > 0 && (!data.isExtended || data.isMomentumStock) ? formatTargetPrice(data.suggestedStopLoss, data.currency) : "—"}</div>
-                      </div>
-                      {data.rangeBox?.isBoxRange && <>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                          <div className="text-[11px] font-bold text-slate-500">箱底</div>
-                          <div className="mt-1 break-all text-base font-black text-emerald-700 sm:text-lg">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
-                        </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                          <div className="text-[11px] font-bold text-slate-500">箱頂</div>
-                          <div className="mt-1 break-all text-base font-black text-amber-700 sm:text-lg">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
-                        </div>
-                      </>}
-                    </div>
+                    {(() => {
+                      const isResistanceOnly = data.pivotRole === 'resistance' || ((data.pivotPrice ?? 0) <= 0 && (data.resistancePrice ?? 0) > 0);
+                      const hasBreakout = (data.pivotPrice ?? 0) > 0 && !isResistanceOnly;
+                      const resistance = data.resistancePrice ?? 0;
+                      const showBox = Boolean(data.rangeBox?.isBoxRange);
+                      const colClass = showBox
+                        ? (isResistanceOnly ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5")
+                        : (isResistanceOnly ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3");
+                      return (
+                        <>
+                          <div className={cn("mt-4 grid gap-3", colClass)}>
+                            {isResistanceOnly ? (
+                              <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+                                <div className="text-[11px] font-bold text-amber-700">舊高壓力</div>
+                                <div className="mt-1 break-all text-base font-black text-amber-800 sm:text-lg">{formatTargetPrice(resistance, data.currency)}</div>
+                              </div>
+                            ) : (
+                              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                <div className="text-[11px] font-bold text-slate-500">突破價</div>
+                                <div className="mt-1 break-all text-base font-black text-blue-700 sm:text-lg">{hasBreakout ? formatTargetPrice(data.pivotPrice, data.currency) : "—"}</div>
+                              </div>
+                            )}
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                              <div className="text-[11px] font-bold text-slate-500">進場上限</div>
+                              <div className="mt-1 break-all text-base font-black text-emerald-700 sm:text-lg">{hasBreakout && !data.isExtended ? formatTargetPrice(data.buyZoneMax, data.currency) : "—"}</div>
+                            </div>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                              <div className="text-[11px] font-bold text-slate-500">停損參考</div>
+                              <div className="mt-1 break-all text-base font-black text-rose-700 sm:text-lg">{hasBreakout && (!data.isExtended || data.isMomentumStock) ? formatTargetPrice(data.suggestedStopLoss, data.currency) : "—"}</div>
+                            </div>
+                            {showBox && <>
+                              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                <div className="text-[11px] font-bold text-slate-500">箱底</div>
+                                <div className="mt-1 break-all text-base font-black text-emerald-700 sm:text-lg">{formatTargetPrice(data.rangeBox.lower, data.currency)}</div>
+                              </div>
+                              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                <div className="text-[11px] font-bold text-slate-500">箱頂</div>
+                                <div className="mt-1 break-all text-base font-black text-amber-700 sm:text-lg">{formatTargetPrice(data.rangeBox.upper, data.currency)}</div>
+                              </div>
+                            </>}
+                          </div>
 
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">
-                      {data.isExtended && !data.isMomentumStock
-                        ? "目前乖離偏高，先等回測，不追價。"
-                        : data.rangeBox?.isBoxRange
-                          ? data.rangeBox.action
-                          : data.pivotPrice > 0
-                            ? "觀察突破是否站穩；未突破前不預設已轉強。"
-                            : "尚未形成明確平台，先觀察。"}
-                    </div>
+                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">
+                            {data.isExtended && !data.isMomentumStock
+                              ? "目前乖離偏高，先等回測，不追價。"
+                              : isResistanceOnly
+                                ? `舊波段高 ${formatTargetPrice(resistance, data.currency)} 回撤偏深${data.pullbackPercentage ? `（${data.pullbackPercentage}%）` : ''}，先當壓力，不當現在突破買點。`
+                                : data.rangeBox?.isBoxRange
+                                  ? data.rangeBox.action
+                                  : hasBreakout
+                                    ? "觀察突破是否站穩；未突破前不預設已轉強。"
+                                    : "尚未形成明確平台，先觀察。"}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* 2027 情境估值 */}
@@ -1333,7 +1225,7 @@ export default function App() {
                               label={{ position: 'insideRight', value: `箱底 ${data.rangeBox.lower.toFixed(2)}`, fill: '#64748b', fontSize: 9, fontWeight: 'bold' }}
                             />
                           )}
-                          {data.pivotPrice > 0 && (
+                          {data.pivotPrice > 0 && data.pivotRole !== 'resistance' && (
                             <ReferenceLine 
                               y={data.pivotPrice} 
                               stroke="#dc2626"
@@ -1346,6 +1238,21 @@ export default function App() {
                                 fontSize: 9, 
                                 fontWeight: 'bold' 
                               }} 
+                            />
+                          )}
+                          {(data.resistancePrice ?? 0) > 0 && data.pivotRole === 'resistance' && (
+                            <ReferenceLine
+                              y={data.resistancePrice}
+                              stroke="#d97706"
+                              strokeWidth={1.6}
+                              strokeDasharray="3 4"
+                              label={{
+                                position: 'insideRight',
+                                value: `舊高壓力 (${data.resistancePrice?.toFixed(2) ?? 0})`,
+                                fill: '#b45309',
+                                fontSize: 9,
+                                fontWeight: 'bold'
+                              }}
                             />
                           )}
                           {data.vcpHigh && !data.isExtended && (data.pivotPrice <= 0 || Math.abs(data.vcpHigh - data.pivotPrice) / data.pivotPrice > 0.015) && (
@@ -1401,10 +1308,9 @@ export default function App() {
 
       {/* Mobile bottom navigation */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur md:hidden">
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-2 gap-1">
           {([
             { key: 'analysis' as const, icon: LayoutDashboard, label: tabMeta.analysis.short },
-            { key: 'surge' as const, icon: Flame, label: tabMeta.surge.short },
             { key: 'watchlist' as const, icon: History, label: tabMeta.watchlist.short },
           ]).map((item) => {
             const active = activeTab === item.key;
@@ -1416,11 +1322,7 @@ export default function App() {
                 onClick={() => switchTab(item.key)}
                 className={cn(
                   "relative flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-bold transition-colors",
-                  active
-                    ? item.key === 'surge'
-                      ? "bg-rose-50 text-rose-600"
-                      : "bg-blue-50 text-blue-600"
-                    : "text-slate-500"
+                  active ? "bg-blue-50 text-blue-600" : "text-slate-500"
                 )}
               >
                 <Icon className="h-4 w-4" />

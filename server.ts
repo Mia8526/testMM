@@ -890,7 +890,23 @@ async function startServer(): Promise<void> {
 
       // 3. Extension Check
       const ma50Extension = ma50 ? ((currentPrice - ma50) / ma50) * 100 : 0;
-      const breakoutPrice = vcpHigh || pivotPrice;
+      // 大跌後深回撤（>30%）的舊 Pivot 只當壓力/舊波段高，不當現在突破買點。
+      // 若已形成較近的 VCP 把手，仍以 VCP 作為可執行突破位。
+      const DEEP_PULLBACK_PCT = 0.30;
+      const isDeepPullbackPivot = pivotPrice > 0 && pullbackPercentage > DEEP_PULLBACK_PCT;
+      let pivotRole: 'breakout' | 'resistance' | 'none' = 'none';
+      let breakoutPrice = 0;
+      let resistancePrice = 0;
+      if (vcpHigh) {
+        breakoutPrice = vcpHigh;
+        pivotRole = 'breakout';
+      } else if (pivotPrice > 0 && !isDeepPullbackPivot) {
+        breakoutPrice = pivotPrice;
+        pivotRole = 'breakout';
+      } else if (pivotPrice > 0 && isDeepPullbackPivot) {
+        resistancePrice = pivotPrice;
+        pivotRole = 'resistance';
+      }
       const isExtended = breakoutPrice > 0
         ? currentPrice > breakoutPrice * 1.25 || ma50Extension > 20
         : ma50Extension > 20;
@@ -901,12 +917,17 @@ async function startServer(): Promise<void> {
       const buyZoneMax = breakoutPrice > 0 ? breakoutPrice * 1.05 : 0;
       const suggestedStopLoss = breakoutPrice > 0 ? breakoutPrice * 0.92 : 0;
       const priceGap = breakoutPrice > 0 ? breakoutPrice - currentPrice : 0;
-      const distFromPivot = breakoutPrice > 0 ? ((currentPrice - breakoutPrice) / breakoutPrice) * 100 : 0;
+      const distFromPivot = breakoutPrice > 0
+        ? ((currentPrice - breakoutPrice) / breakoutPrice) * 100
+        : resistancePrice > 0
+          ? ((currentPrice - resistancePrice) / resistancePrice) * 100
+          : 0;
 
-      // [FIXED] VCP 狀態更細緻
+      // [FIXED] VCP 狀態更細緻；深回撤舊高改標壓力
       let vcpStatus = "整理中";
       if (vcpHigh && currentPrice > vcpHigh && isVolumeContracted) vcpStatus = "帶量突破";
       else if (vcpHigh && isVolumeContracted) vcpStatus = "量縮盤整";
+      else if (pivotRole === 'resistance') vcpStatus = "舊高壓力";
       else if (pivotIdx !== -1 && !vcpHigh) vcpStatus = "等待把手";
 
       // Trend Template Logic (Minervini)
@@ -992,6 +1013,8 @@ async function startServer(): Promise<void> {
         isMomentumStock,
         basePivotPrice: pivotPrice,
         pivotPrice: breakoutPrice,
+        resistancePrice,
+        pivotRole,
         buyZoneMax,
         suggestedStopLoss,
         priceGap,

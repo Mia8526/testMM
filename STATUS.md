@@ -24,4 +24,9 @@
 - 2026-08-17: Daily Surge 列表欄位「漲幅」改為「股本」（顯示實收資本額，單位億；可排序）。
 - 2026-08-17: Mobile-responsive shell for all pages: sticky top bar + drawer + bottom nav on phone; watchlist/surge card layouts; analysis spacing/chart/key-level grids tightened for small screens.
 - 2026-08-17: Taiwan stock display names prefer Chinese short names (exchange map + TWSE MIS), while US tickers keep English provider names.
-- Latest verification: `pnpm run lint`, `pnpm run build`, `node --test src/lib/julyRecovery.test.ts src/lib/rangeBox.test.ts` passed after Taiwan Chinese short-name fix.
+- 2026-08-24: Added offline Daily Surge tracker `scripts/daily_surge_track.mjs` (same try-next rules: neckline + volume surge + gap-up). Saves JSON/JSONL under `data/daily-surge-track/`, settles prior picks next day (entry=next open, metric=open→close), and posts a short Telegram message via Hermes cron `f953f30c0069` Mon–Fri 16:10 (`no_agent`, script `daily_surge_track.sh`).
+- Latest verification: tracker smoke run on 2026-08-24 produced 2 try-next names (TPEX-only while TWSE daily still lagged on 2026-08-21); cron next run 2026-08-25 16:10.
+- 2026-08-27: Deep-pullback Pivot (>30%) is demoted to resistance-only (`pivotRole=resistance`); no buy-zone/stop from stale highs. Box-range no longer uses abandoned July crash lows as the floor; prefers near-end standard boxes (1717 ≈ 68.5–79.8).
+- 2026-08-28: Removed Daily Surge entry completely: deleted `StockSurge.tsx`, `julyRecovery*`, and surge-only APIs (`twse-daily`/`tpex-daily`/`twse-industry`/`stock-flags`). App keeps only 趨勢分析 + 觀察日誌.
+- 2026-09-22: Previous Daily Surge removal was local-only and never pushed, so production still showed 每日強勢股. Now committed and pushed; production should keep only 趨勢分析 + 觀察日誌.
+- Latest verification: `pnpm run lint`, `pnpm run build`, `node --test src/lib/rangeBox.test.ts` passed; local dist JS has 0 hits for 每日強勢股.

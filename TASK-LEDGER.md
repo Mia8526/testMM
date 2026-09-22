@@ -156,3 +156,19 @@
 - [x] 根因：上櫃中文名稱對照表冷啟動偏慢，timeout 後 fallback 到 Yahoo 英文名。
 - [x] 修正：上市/上櫃優先抓中文短名（日報表 + 公司表 + TWSE MIS 單檔查詢，誰先回中文用誰）；`pickDisplayName` 有中文就不用英文；美股維持 provider 英文名。
 - [x] 驗證：`pnpm run lint`、`pnpm run build`、既有 unit tests。
+
+## 2026-08-24 — 每日強勢股追蹤（Telegram 短訊）
+
+- [x] 規則對齊 App：`破頸線 + 放量 + 跳空 = 隔日可試`；最多 8 檔；無符合不硬湊。
+- [x] 腳本：`scripts/daily_surge_track.mjs` + Hermes wrapper `~/.hermes/profiles/mia/scripts/daily_surge_track.sh`。
+- [x] 進場/績效假設：次日開進、次日開→收結算；資料寫入 `data/daily-surge-track/`（state/ledger/summary/picks_YYYY-MM-DD）。
+- [x] 防污染：上市/上櫃資料日不一致時只採用最新日；上櫃 openapi 備援 `tpex_mainboard_quotes`。
+- [x] Cron：`f953f30c0069` 週一到五 16:10，`no_agent` 直接推 stdout 到本聊天。
+- [x] 驗證：本機手動跑成功；今日樣本 4707/6712（因上市官價仍停在 08/21）。
+
+## 2026-09-22 — 真正拿掉線上「每日強勢股」頁籤
+
+- [x] Repro：Grace 仍看到頁籤；production JS（`test-mm-rorh` / `test-mm-e6yq`）仍含「每日強勢股」6 次。
+- [x] 根因：8/28 本機已刪導覽與 `StockSurge.tsx`，但沒 commit / push，線上停在 8/17 部署。
+- [x] 修正：提交並推送已刪除的頁籤、元件、專用 API；導覽只留趨勢分析 + 觀察日誌。
+- [x] 驗證：`pnpm run lint`、`pnpm run build`、`rangeBox` tests；本機 dist JS 0 次「每日強勢股」。
