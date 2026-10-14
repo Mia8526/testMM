@@ -178,3 +178,4 @@
 - [x] Repro：production `test-mm-e6yq` 查 `台積電` / `群聯` 回 404；`2330` 正常。
 - [x] 修正：用上市/上櫃中文短名對照把中文查詢轉成代號；輸入框可直接打中文。
 - [x] 驗證：`node --test src/lib/taiwanQuery.test.ts`、live name-map 解析 `台積電→2330` / `群聯→8299`、`pnpm run lint`、`pnpm run build`。
+- [x] 線上：`test-mm-e6yq` 查 `台積電`/`群聯`/`川湖` 回對應代號與中文名；代號與 NVDA 仍可用。冷啟動勿對名稱表設太短 timeout，404 不要 CDN 快取。

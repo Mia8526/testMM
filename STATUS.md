@@ -31,3 +31,4 @@
 - 2026-09-22: Previous Daily Surge removal was local-only and never pushed, so production still showed 每日強勢股. Now committed and pushed; production should keep only 趨勢分析 + 觀察日誌.
 - Latest verification: `pnpm run lint`, `pnpm run build`, `node --test src/lib/rangeBox.test.ts` passed; local dist JS has 0 hits for 每日強勢股.
 - 2026-10-14: Trend analysis search now accepts Chinese short names (`台積電` / `群聯`) as well as tickers. Production previously 404'd Chinese queries.
+- Latest verification: `test-mm-e6yq` `/api/stock?ticker=台積電` → `2330.TW 台積電`; `群聯` → `8299.TWO`; `川湖` → `2059.TW`; `2330`/`NVDA` still work.
