@@ -462,14 +462,33 @@ async function inferTaiwanSuffixFast(code: string): Promise<'TW' | 'TWO' | null>
   return withTimeout(inferTaiwanSuffix(code), 400, null);
 }
 
-async function resolveChineseTickerFast(query: string) {
-  return withTimeout((async () => {
-    const [listedMap, otcMap] = await Promise.all([
-      getListedNameMap(),
-      getOtcNameMap(),
-    ]);
-    return pickTaiwanNameMatch(query, listedMap, otcMap);
-  })(), 4000, null);
+async function fetchDailyTaiwanNameMaps(): Promise<{ listed: Record<string, string>; otc: Record<string, string> }> {
+  const [dayAll, otcDaily] = await Promise.all([
+    fetchJsonArray('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
+    fetchJsonArray('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes'),
+  ]);
+  const listed: Record<string, string> = {};
+  for (const row of dayAll) {
+    const rowCode = String(row.Code ?? row['證券代號'] ?? '').trim();
+    const name = normalizeCompanyName(String(row.Name ?? row['證券名稱'] ?? ''));
+    if (rowCode && name) listed[rowCode] = name;
+  }
+  const otc: Record<string, string> = {};
+  for (const row of otcDaily) {
+    const rowCode = String(row.SecuritiesCompanyCode ?? row.Code ?? '').trim();
+    const name = normalizeCompanyName(String(row.CompanyName ?? row.Name ?? row['證券名稱'] ?? ''));
+    if (rowCode && name) otc[rowCode] = name;
+  }
+  if (!listedNameMapCache && Object.keys(listed).length) listedNameMapCache = listed;
+  if (!otcNameMapCache && Object.keys(otc).length) otcNameMapCache = otc;
+  return { listed, otc };
+}
+
+async function resolveChineseTicker(query: string) {
+  const cached = pickTaiwanNameMatch(query, listedNameMapCache || {}, otcNameMapCache || {});
+  if (cached) return cached;
+  const { listed, otc } = await fetchDailyTaiwanNameMaps();
+  return pickTaiwanNameMatch(query, listed, otc);
 }
 
 async function startServer(): Promise<void> {
@@ -502,7 +521,7 @@ async function startServer(): Promise<void> {
       if (embeddedCode && hasCjk(tickerInput)) {
         ticker = embeddedCode;
       } else if (hasCjk(tickerInput)) {
-        const hit = await resolveChineseTickerFast(tickerInput);
+        const hit = await resolveChineseTicker(tickerInput);
         if (hit) {
           ticker = `${hit.code}.${hit.market}`;
           console.log(`[${requestId}] Chinese query resolved to ${ticker}`);
@@ -701,6 +720,7 @@ async function startServer(): Promise<void> {
       }
 
       if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
+        res.setHeader('Cache-Control', 'no-store');
         return res.status(404).json({ 
           error: `找不到股票數據: ${tickerInput}`,
           details: lastError 
