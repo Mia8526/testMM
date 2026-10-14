@@ -173,6 +173,22 @@ export function detectRangeBox(data: OhlcBar[], currentPrice: number): RangeBox 
   const lower = chosen.lower;
   const breakdown =
     currentPrice < lower * 0.97 && valid.slice(-3).filter((x) => x.close < lower * 0.97).length >= 2;
+  const recent = valid.slice(-10);
+  const recentDrop =
+    recent.length >= 8 && recent[0].close > 0
+      ? recent[recent.length - 1].close / recent[0].close - 1
+      : 0;
+  const farBelow = currentPrice < lower * 0.9;
+  // After a waterfall, the old high-level range is pressure, not a live box.
+  if ((breakdown || currentPrice < lower * 0.97) && (farBelow || recentDrop <= -0.12)) {
+    return {
+      ...empty(
+        '非箱型：下降趨勢明顯',
+        '近端已明顯下修，舊整理區失效。先等止跌與新的上下緣，不要沿用舊箱底。',
+      ),
+      breakdown: true,
+    };
+  }
   const widthPct = ((upper - lower) / ((upper + lower) / 2)) * 100;
   const raw = ((currentPrice - lower) / Math.max(upper - lower, 1e-9)) * 100;
   const currentPositionPct = Math.max(0, Math.min(100, raw));

@@ -179,3 +179,10 @@
 - [x] 修正：用上市/上櫃中文短名對照把中文查詢轉成代號；輸入框可直接打中文。
 - [x] 驗證：`node --test src/lib/taiwanQuery.test.ts`、live name-map 解析 `台積電→2330` / `群聯→8299`、`pnpm run lint`、`pnpm run build`。
 - [x] 線上：`test-mm-e6yq` 查 `台積電`/`群聯`/`川湖` 回對應代號與中文名；代號與 NVDA 仍可用。冷啟動勿對名稱表設太短 timeout，404 不要 CDN 快取。
+
+## 2026-10-14 — 川湖箱型誤把舊高整理當現箱
+
+- [x] Repro：`2059` 現價 10,060，production 箱型卻是 11,770–14,198（箱型跌破確認）。
+- [x] 根因：急跌後仍保留舊高整理區當 live box，圖上箱型浮在現價上方。
+- [x] 修正：現價低於舊箱底逾 10%，或近 10 日跌超過 12%，改為 `非箱型：下降趨勢明顯`，不畫舊箱。
+- [x] 驗證：`node --test src/lib/rangeBox.test.ts`（含 2059 實際 OHLC）、`pnpm run lint`、`pnpm run build`。

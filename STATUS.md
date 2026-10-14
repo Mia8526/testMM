@@ -32,3 +32,4 @@
 - Latest verification: `pnpm run lint`, `pnpm run build`, `node --test src/lib/rangeBox.test.ts` passed; local dist JS has 0 hits for 每日強勢股.
 - 2026-10-14: Trend analysis search now accepts Chinese short names (`台積電` / `群聯`) as well as tickers. Production previously 404'd Chinese queries.
 - Latest verification: `test-mm-e6yq` `/api/stock?ticker=台積電` → `2330.TW 台積電`; `群聯` → `8299.TWO`; `川湖` → `2059.TW`; `2330`/`NVDA` still work.
+- 2026-10-14: 川湖 2059 急跌後不再把 11,770–14,198 舊高整理畫成現在箱型；改標 `非箱型：下降趨勢明顯`。

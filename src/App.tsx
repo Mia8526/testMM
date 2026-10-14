@@ -955,7 +955,7 @@ export default function App() {
                       const isResistanceOnly = data.pivotRole === 'resistance' || ((data.pivotPrice ?? 0) <= 0 && (data.resistancePrice ?? 0) > 0);
                       const hasBreakout = (data.pivotPrice ?? 0) > 0 && !isResistanceOnly;
                       const resistance = data.resistancePrice ?? 0;
-                      const showBox = Boolean(data.rangeBox?.isBoxRange);
+                      const showBox = Boolean(data.rangeBox?.isBoxRange && !data.rangeBox?.breakdown);
                       const colClass = showBox
                         ? (isResistanceOnly ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5")
                         : (isResistanceOnly ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3");
@@ -998,7 +998,7 @@ export default function App() {
                               ? "目前乖離偏高，先等回測，不追價。"
                               : isResistanceOnly
                                 ? `舊波段高 ${formatTargetPrice(resistance, data.currency)} 回撤偏深${data.pullbackPercentage ? `（${data.pullbackPercentage}%）` : ''}，先當壓力，不當現在突破買點。`
-                                : data.rangeBox?.isBoxRange
+                                : data.rangeBox?.action && (data.rangeBox.isBoxRange || data.rangeBox.breakdown || data.rangeBox.status?.startsWith('非箱型'))
                                   ? data.rangeBox.action
                                   : hasBreakout
                                     ? "觀察突破是否站穩；未突破前不預設已轉強。"
