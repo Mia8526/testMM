@@ -617,14 +617,14 @@ export default function App() {
   const analysisSearchForm = (
     <form onSubmit={handleSearch} className="space-y-3">
       <div className="space-y-2">
-        <label className="text-[13px] font-medium text-[#475569]">股票代碼</label>
+        <label className="text-[13px] font-medium text-[#475569]">股票代碼或中文名稱</label>
         <input
           type="text"
           inputMode="search"
           enterKeyHint="search"
-          autoCapitalize="characters"
+          autoCapitalize="off"
           autoCorrect="off"
-          placeholder="e.g. 2330 or NVDA"
+          placeholder="台積電、2330 或 NVDA"
           className="sleek-input"
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
@@ -673,9 +673,9 @@ export default function App() {
               type="text"
               inputMode="search"
               enterKeyHint="search"
-              autoCapitalize="characters"
+              autoCapitalize="off"
               autoCorrect="off"
-              placeholder="輸入股票代碼"
+              placeholder="台積電、2330 或 NVDA"
               className="sleek-input min-w-0 flex-1"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value)}

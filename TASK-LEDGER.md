@@ -172,3 +172,9 @@
 - [x] 根因：8/28 本機已刪導覽與 `StockSurge.tsx`，但沒 commit / push，線上停在 8/17 部署。
 - [x] 修正：提交並推送已刪除的頁籤、元件、專用 API；導覽只留趨勢分析 + 觀察日誌。
 - [x] 驗證：`pnpm run lint`、`pnpm run build`、`rangeBox` tests；本機 dist JS 0 次「每日強勢股」。
+
+## 2026-10-14 — 趨勢分析支援中文搜尋
+
+- [x] Repro：production `test-mm-e6yq` 查 `台積電` / `群聯` 回 404；`2330` 正常。
+- [x] 修正：用上市/上櫃中文短名對照把中文查詢轉成代號；輸入框可直接打中文。
+- [x] 驗證：`node --test src/lib/taiwanQuery.test.ts`、live name-map 解析 `台積電→2330` / `群聯→8299`、`pnpm run lint`、`pnpm run build`。

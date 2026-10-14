@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import yf from 'yahoo-finance2';
 import { subDays, format } from 'date-fns';
 import { detectRangeBox } from './rangeBox.js';
+import { extractEmbeddedTaiwanCode, pickTaiwanNameMatch } from './taiwanQuery.js';
 
 /**
  * Utility functions for technical indicators (Inlined for reliability)
@@ -454,6 +455,16 @@ async function inferTaiwanSuffixFast(code: string): Promise<'TW' | 'TWO' | null>
   return withTimeout(inferTaiwanSuffix(code), 400, null);
 }
 
+async function resolveChineseTickerFast(query: string) {
+  return withTimeout((async () => {
+    const [listedMap, otcMap] = await Promise.all([
+      getListedNameMap(),
+      getOtcNameMap(),
+    ]);
+    return pickTaiwanNameMatch(query, listedMap, otcMap);
+  })(), 4000, null);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Set CORS headers for Vercel
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -471,11 +482,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const ticker = (req.query.ticker as string || '').trim();
+    const tickerInput = (req.query.ticker as string || '').trim();
     const requestId = Math.random().toString(36).substring(7);
     
-    if (!ticker) {
-      return res.status(400).json({ error: '請提供股票代碼 (ticker)' });
+    if (!tickerInput) {
+      return res.status(400).json({ error: '請提供股票代碼或中文名稱' });
+    }
+
+    let ticker = tickerInput;
+    const embeddedCode = extractEmbeddedTaiwanCode(tickerInput);
+    if (embeddedCode && hasCjk(tickerInput)) {
+      ticker = embeddedCode;
+    } else if (hasCjk(tickerInput)) {
+      const hit = await resolveChineseTickerFast(tickerInput);
+      if (hit) ticker = `${hit.code}.${hit.market}`;
     }
 
     let symbol = ticker.toUpperCase();
@@ -641,6 +661,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
       }
+
+      if ((!fetchResult || !fetchResult.historical) && hasCjk(tickerInput)) {
+        try {
+          const searchResults = await yahooFinance.search(tickerInput);
+          const quotes = Array.isArray(searchResults?.quotes) ? searchResults.quotes : [];
+          const bestMatch = quotes.find((q: any) =>
+            typeof q?.symbol === 'string' && (q.symbol.endsWith('.TW') || q.symbol.endsWith('.TWO'))
+          ) || quotes.find((q: any) => typeof q?.symbol === 'string');
+          if (bestMatch?.symbol) {
+            fetchResult = await tryFetch(bestMatch.symbol);
+            if (fetchResult && fetchResult.historical && fetchResult.historical.length > 0) {
+              symbol = bestMatch.symbol;
+              marketType = symbol.endsWith('.TW') ? '上市' : (symbol.endsWith('.TWO') ? '上櫃' : '美股');
+              if (marketType === '美股') currency = '$';
+            }
+          }
+        } catch (se) {
+          console.error(`[${requestId}] Chinese Yahoo search fallback failed:`, se);
+        }
+      }
       
       if (fetchResult && !marketType) {
         marketType = symbol.endsWith('.TW') ? '上市' : (symbol.endsWith('.TWO') ? '上櫃' : '美股');
@@ -650,7 +690,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!fetchResult || !fetchResult.historical || fetchResult.historical.length === 0) {
       return res.status(404).json({ 
-        error: `找不到股票數據: ${ticker}`,
+        error: `找不到股票數據: ${tickerInput}`,
         details: lastError
       });
     }
